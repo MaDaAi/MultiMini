@@ -93,7 +93,7 @@ public final class MainWindow extends JFrame {
     private boolean multitask;
 
     public MainWindow(PythonBridge backend) {
-        super("MultiMin");
+        super("MultiMini");
         this.backend = backend;
         try { appLogo = new LogoIcon(36); setIconImages(List.of(new LogoIcon(16).toImage(), new LogoIcon(32).toImage(), new LogoIcon(64).toImage(), new LogoIcon(256).toImage())); }
         catch (Exception ignored) { appLogo = null; }
@@ -202,7 +202,7 @@ public final class MainWindow extends JFrame {
     private void buildUi() {
         root.setBackground(palette.background); configuration.setOpaque(false); topBar.setLayout(new BoxLayout(topBar, BoxLayout.X_AXIS));
         topBar.setBorder(new EmptyBorder(10, 18, 10, 18));
-        JLabel brand = new JLabel("MultiMin"); brand.setFont(brand.getFont().deriveFont(Font.BOLD, 15f));
+        JLabel brand = new JLabel("MultiMini"); brand.setFont(brand.getFont().deriveFont(Font.BOLD, 15f));
         if (appLogo != null) { brand.setIcon(appLogo); brand.setIconTextGap(10); }
         topBar.add(brand); topBar.add(Box.createHorizontalStrut(25));
         for (View view : views) { JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); viewButtons.put(view, tab); topBar.add(tab); }
