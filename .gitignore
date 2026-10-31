@@ -1,0 +1,9 @@
+/build/
+/native/build/
+/python/.venv/
+/python/vendor/
+**/__pycache__/
+*.tmp
+*.log
+multimin-settings.properties
+/backups/

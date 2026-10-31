@@ -1,0 +1,1262 @@
+package app.multimin.ui;
+
+import app.multimin.backend.PythonBridge;
+import app.multimin.backend.DisplayCapture;
+import app.multimin.backend.WindowFrameReader;
+import app.multimin.model.Source;
+import app.multimin.model.View;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.plaf.basic.BasicSplitPaneDivider;
+import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
+import java.awt.geom.Area;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import javax.imageio.ImageIO;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public final class MainWindow extends JFrame {
+    private final Palette palette = new Palette();
+    private final PythonBridge backend;
+    private final List<View> views = new ArrayList<>();
+    private final Map<View, AbstractButton> viewButtons = new HashMap<>();
+    private final BackgroundPanel root = new BackgroundPanel(palette);
+    private final JPanel configuration = new JPanel(new BorderLayout());
+    private JComponent sourcesPanelRef;
+    private JComponent propertiesPanelRef;
+    private final JPanel canvasPanel = new JPanel(new BorderLayout());
+    private final JPanel topBar = new GlassPanel(palette);
+    private final JList<Source> sourceList = new JList<>();
+    private final JLabel viewTitle = new JLabel();
+    private final JTextArea layerTitle = new JTextArea("Media");
+    private final JLabel backendStatus = new JLabel("Starting capture service…");
+    private final JLabel performanceStatus = new JLabel();
+    private final JLabel inputKeyHint = new JLabel();
+    private final JLabel layerKeyHint = new JLabel();
+    private final JPanel debugPanel = new JPanel(new GridLayout(0, 1));
+    private final JLabel multitaskInputLabel = new JLabel("Input target: desktop");
+    private final JSlider opacity = new JSlider(0, 100, 100);
+    private final JSlider scale = new JSlider(5, 250, 38);
+    private final List<JTextField> percentageFields = new ArrayList<>();
+    private final JComboBox<String> accentMode = new JComboBox<>(new String[]{"Blue", "Red", "Orange", "Yellow", "Green", "Purple", "White", "Black", "Custom…"});
+    private LogoIcon appLogo;
+    private PreviewPanel preview;
+    private final List<DisplayCapture> displayCaptures = new ArrayList<>();
+    private final Map<Integer, BufferedImage> pendingDisplayFrames = new ConcurrentHashMap<>();
+    private final AtomicBoolean displayFrameUpdateQueued = new AtomicBoolean();
+    private final AtomicBoolean windowFrameScanQueued = new AtomicBoolean();
+    private final WindowFrameReader windowFrameReader = new WindowFrameReader();
+    private final Map<Source, Long> lastFrameCounts = new HashMap<>();
+    private final java.util.concurrent.ExecutorService windowFrameWorker = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "multimin-window-frame-reader"); thread.setDaemon(true); return thread;
+    });
+    private JWindow multitaskWindow;
+    private JWindow multitaskControls;
+    private final Path windowFramesDirectory;
+    private final javax.swing.Timer windowFrameTimer;
+    private final javax.swing.Timer performanceTimer;
+    private final AppPreferences preferences = new AppPreferences();
+    private int performanceFps = Math.max(0, Math.min(240,
+        !preferences.getBoolean("captureFpsChoiceV2", false) && preferences.getInt("captureFps", 0) == 60
+            ? 0 : preferences.getInt("captureFps", 0)));
+    private int revealCornerIndex = 0;
+    private String stopKeyBinding = "END";
+    private String pendingWindowSourceName;
+    private boolean pendingWindowNameManual;
+    private String pendingImageName;
+    private String swapKeyBinding = "RIGHT_CTRL";
+    private String layerSwapKeyBinding = "PAUSE";
+    private boolean recordingLayerSwapKey;
+    private JButton layerSwapKeyButton;
+    private boolean recordingSwapKey;
+    private boolean recordingStopKey;
+    private boolean settingsHotkeyRecording;
+    private String stagedSwapKeyBinding;
+    private String stagedLayerSwapKeyBinding;
+    private String stagedStopKeyBinding;
+    private JButton swapKeyButton;
+    private JButton stopKeyButton;
+    private JButton multitaskExitButton;
+    private JLabel multitaskTargetLabel;
+    private javax.swing.Timer inputNoticeTimer;
+    private View activeView;
+    private boolean multitask;
+
+    public MainWindow(PythonBridge backend) {
+        super("MultiMin");
+        this.backend = backend;
+        try { appLogo = new LogoIcon(36); setIconImages(List.of(new LogoIcon(16).toImage(), new LogoIcon(32).toImage(), new LogoIcon(64).toImage(), new LogoIcon(256).toImage())); }
+        catch (Exception ignored) { appLogo = null; }
+        Path frameDirectory;
+        try { frameDirectory = Files.createTempDirectory("multimin-window-frames-"); }
+        catch (java.io.IOException error) { frameDirectory = Path.of(System.getProperty("java.io.tmpdir"), "multimin-window-frames"); }
+        windowFramesDirectory = frameDirectory;
+        views.add(new View("Work")); views.add(new View("Media")); views.add(new View("Game"));
+        activeView = views.get(0);
+        preview = new PreviewPanel(palette, activeView);
+        preview.onSelectionChanged(index -> sourceList.setSelectedIndex(index));
+        preview.onSourceChanged(this::syncSelection);
+        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        Rectangle usable = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        setMinimumSize(new Dimension(520, 420)); setSize(Math.min(1180, usable.width - 60), Math.min(740, usable.height - 60)); setLocationRelativeTo(null); setExtendedState(JFrame.MAXIMIZED_BOTH);
+        buildUi();
+        bindShortcuts();
+        backend.setQuickSwapHandler(event -> SwingUtilities.invokeLater(() -> {
+            if ("quick_swap".equals(event) && multitask) cycleQuickSwapTarget();
+            else if ("layer_swap".equals(event) && multitask) swapVisibleLayers();
+            else if ("visual_stack_applied".equals(event) && multitask) {
+                if (multitaskWindow != null) multitaskWindow.toFront();
+                if (multitaskControls != null) multitaskControls.toFront();
+                backend.send("{\"command\":\"refresh_overlay_hit_test\"}");
+            }
+            else if ("toggle_multitask".equals(event)) setMultitask(!multitask);
+        }));
+        backend.setGameStatusHandler((fileName, status) -> SwingUtilities.invokeLater(() -> {
+            for (View view : views) for (int index = 0; index < view.sources.size(); index++) {
+                Source source = view.sources.get(index);
+                if (source.kind != Source.Kind.GAME || source.captureFramePath == null ||
+                    !Path.of(source.captureFramePath).getFileName().toString().equals(fileName)) continue;
+                source.activeCaptureBackend = "DirectX 11 test capture · " + status.replace('_', ' ');
+                if ("waiting_for_game".equals(status) || "unsupported".equals(status) || "stopped".equals(status)) {
+                    source.liveFrame = null;
+                    source.standbyFrame = null;
+                }
+                preview.repaint();
+            }
+        }));
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(event -> {
+            if (recordingSwapKey && event.getID() == KeyEvent.KEY_PRESSED) {
+                if (settingsHotkeyRecording && event.getKeyCode() == KeyEvent.VK_ESCAPE) { recordingSwapKey = false; updateRecordingButton(swapKeyButton, stagedSwapKeyBinding); return true; }
+                String chosen = keyBindingForEvent(event);
+                if (chosen != null) {
+                    if (settingsHotkeyRecording) stagedSwapKeyBinding = chosen; else swapKeyBinding = chosen;
+                    recordingSwapKey = false;
+                    if (swapKeyButton != null) swapKeyButton.setText(prettyKeyBinding(chosen));
+                    return true;
+                }
+            }
+            if (recordingStopKey && event.getID() == KeyEvent.KEY_PRESSED) {
+                if (settingsHotkeyRecording && event.getKeyCode() == KeyEvent.VK_ESCAPE) { recordingStopKey = false; updateRecordingButton(stopKeyButton, stagedStopKeyBinding); return true; }
+                String chosen = keyBindingForEvent(event);
+                if (chosen != null) {
+                    if (settingsHotkeyRecording) stagedStopKeyBinding = chosen; else stopKeyBinding = chosen;
+                    recordingStopKey = false;
+                    if (stopKeyButton != null) stopKeyButton.setText(prettyKeyBinding(chosen));
+                    return true;
+                }
+            }
+            if (recordingLayerSwapKey && event.getID() == KeyEvent.KEY_PRESSED) {
+                if (settingsHotkeyRecording && event.getKeyCode() == KeyEvent.VK_ESCAPE) { recordingLayerSwapKey = false; updateRecordingButton(layerSwapKeyButton, stagedLayerSwapKeyBinding); return true; }
+                if (event.getKeyCode() == KeyEvent.VK_BACK_SPACE || event.getKeyCode() == KeyEvent.VK_DELETE) {
+                    if (settingsHotkeyRecording) stagedLayerSwapKeyBinding = ""; else layerSwapKeyBinding = "";
+                    recordingLayerSwapKey = false;
+                    if (layerSwapKeyButton != null) layerSwapKeyButton.setText("Unassigned");
+                    if (!settingsHotkeyRecording) updateHotkeyHints();
+                    return true;
+                }
+                String chosen = keyBindingForEvent(event);
+                if (chosen != null) {
+                    if (settingsHotkeyRecording) stagedLayerSwapKeyBinding = chosen; else layerSwapKeyBinding = chosen;
+                    recordingLayerSwapKey = false;
+                    if (layerSwapKeyButton != null) layerSwapKeyButton.setText(prettyKeyBinding(chosen));
+                    return true;
+                }
+            }
+            if (multitask && !backend.isReady() && event.getID() == KeyEvent.KEY_PRESSED && keyBindingForEvent(event) != null && keyBindingForEvent(event).equals(swapKeyBinding)) {
+                cycleQuickSwapTarget(); return true;
+            }
+            return false;
+        });
+        GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+        for (int i = 0; i < screens.length; i++) {
+            try {
+                final int deviceIndex = i;
+                DisplayCapture capture = new DisplayCapture(screens[i]);
+                int refresh = screens[i].getDisplayMode().getRefreshRate();
+                capture.setTargetFps(Math.min(effectiveCaptureFps(), refresh > 0 ? refresh : 60));
+                capture.setEnabled(false);
+                capture.setExcludedRegionSupplier(this::multitaskCaptureExclusion);
+                capture.start(frame -> displayFrameArrived(deviceIndex, frame), error -> setBackendStatus("Display capture unavailable — " + error.getMessage()));
+                displayCaptures.add(capture);
+            } catch (Exception error) { setBackendStatus("Display capture unavailable — " + error.getMessage()); }
+        }
+        windowFrameTimer = new javax.swing.Timer(Math.max(1, (int) Math.ceil(1000.0 / effectiveCaptureFps())), event -> refreshWindowFrames());
+        windowFrameTimer.start();
+        performanceTimer = new javax.swing.Timer(1000, event -> refreshPerformanceStats());
+        performanceStatus.setVisible(preferences.getBoolean("showPerformanceStats", false));
+        performanceTimer.start();
+        backend.setCaptureFps(effectiveCaptureFps());
+        addWindowListener(new WindowAdapter() { @Override public void windowClosing(WindowEvent event) { shutdownServices(); } });
+    }
+
+    private void buildUi() {
+        root.setBackground(palette.background); configuration.setOpaque(false); topBar.setLayout(new BoxLayout(topBar, BoxLayout.X_AXIS));
+        topBar.setBorder(new EmptyBorder(10, 18, 10, 18));
+        JLabel brand = new JLabel("MultiMin"); brand.setFont(brand.getFont().deriveFont(Font.BOLD, 15f));
+        if (appLogo != null) { brand.setIcon(appLogo); brand.setIconTextGap(10); }
+        topBar.add(brand); topBar.add(Box.createHorizontalStrut(25));
+        for (View view : views) { JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); viewButtons.put(view, tab); topBar.add(tab); }
+        JButton addView = quietButton("＋"); addView.addActionListener(event -> addView()); topBar.add(addView); topBar.add(Box.createHorizontalGlue());
+        sourcesPanelRef = sourcesPanel(); propertiesPanelRef = propertiesPanel();
+        configuration.add(new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+            new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sourcesPanelRef, centerPanel()),
+            propertiesPanelRef), BorderLayout.CENTER);
+        configureSplitters((JSplitPane) configuration.getComponent(0));
+        root.add(topBar, BorderLayout.NORTH); root.add(configuration, BorderLayout.CENTER); setContentPane(root);
+        sourceList.setSelectedIndex(0); syncSelection();
+    }
+
+    private JPanel sourcesPanel() {
+        GlassPanel panel = new GlassPanel(palette); panel.setPreferredSize(new Dimension(265, 0)); panel.setMinimumSize(new Dimension(70, 0)); panel.setLayout(new BorderLayout(0, 10)); panel.setBorder(new EmptyBorder(12, 8, 8, 8));
+        JPanel heading = transparent(new BorderLayout()); JPanel names = transparent(new GridLayout(0, 1)); names.add(muted("CURRENT VIEW")); viewTitle.setFont(viewTitle.getFont().deriveFont(Font.BOLD, 23f)); names.add(viewTitle); heading.add(names); JButton add = primaryButton("＋ Add"); add.setPreferredSize(new Dimension(76, 32)); add.addActionListener(event -> addSource()); JPanel addWrap = transparent(new FlowLayout(FlowLayout.RIGHT, 0, 4)); addWrap.add(add); heading.add(addWrap, BorderLayout.EAST); panel.add(heading, BorderLayout.NORTH);
+        sourceList.setModel(activeView.sources); sourceList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); sourceList.setFixedCellHeight(46); sourceList.setDragEnabled(true); sourceList.setDropMode(DropMode.INSERT); sourceList.setTransferHandler(new SourceReorderHandler()); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.addListSelectionListener(event -> syncSelection());
+        sourceList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "remove-source");
+        sourceList.getActionMap().put("remove-source", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { removeSelected(); } });
+        sourceList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "rename-source");
+        sourceList.getActionMap().put("rename-source", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { renameSelected(); } });
+        sourceList.setToolTipText("Click the pointer icon to include a source in the input cycle · double-click to configure");
+        sourceList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent event) {
+                int index = sourceList.locationToIndex(event.getPoint());
+                if (index >= 0 && sourceList.getCellBounds(index, index).contains(event.getPoint()) && event.getX() >= sourceList.getWidth() - 56) {
+                    Source source = sourceList.getModel().getElementAt(index);
+                    if (event.getX() >= sourceList.getWidth() - 30) {
+                        if (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME) {
+                            source.quickSwapInput = !source.quickSwapInput;
+                            if (source.quickSwapInput) source.controlColor = nextControlColor(source);
+                        }
+                    } else source.visible = !source.visible;
+                    sourceList.repaint(); preview.repaint();
+                } else if (event.getClickCount() == 2) configureSelectedSource();
+            }
+            @Override public void mouseReleased(java.awt.event.MouseEvent event) { preview.repaint(); }
+        });
+        JScrollPane scroller = new JScrollPane(sourceList); scroller.setBorder(BorderFactory.createLineBorder(palette.line));
+        styleScrollBar(scroller.getVerticalScrollBar()); styleScrollBar(scroller.getHorizontalScrollBar());
+        panel.add(scroller, BorderLayout.CENTER);
+        JPanel footer = transparent(new GridLayout(0, 1, 0, 6)); JPanel controls = transparent(new GridLayout(1, 0, 4, 0));
+        JButton plus = toolButton("＋", "Add source"); plus.addActionListener(event -> addSource()); controls.add(plus);
+        JButton minus = toolButton("−", "Remove source"); minus.addActionListener(event -> removeSelected()); controls.add(minus);
+        JButton duplicate = toolButton("⧉", "Duplicate source"); duplicate.addActionListener(event -> duplicateSelected()); controls.add(duplicate);
+        JButton visibility = toolButton("◉", "Show or hide selected source"); visibility.addActionListener(event -> toggleSelectedVisibility()); controls.add(visibility);
+        JButton up = toolButton("↑", "Move source up"); up.addActionListener(event -> moveSelected(-1)); controls.add(up);
+        JButton down = toolButton("↓", "Move source down"); down.addActionListener(event -> moveSelected(1)); controls.add(down);
+        footer.add(controls); footer.add(muted("Drag to reorder  ·  Double-click to configure · F2 to rename"));
+        inputKeyHint.setForeground(palette.muted); layerKeyHint.setForeground(palette.muted); updateHotkeyHints();
+        footer.add(inputKeyHint); footer.add(layerKeyHint);
+        panel.add(footer, BorderLayout.SOUTH); switchView(activeView); return panel;
+    }
+
+    private JPanel centerPanel() {
+        canvasPanel.setOpaque(false); JPanel toolbar = transparent(new BorderLayout()); toolbar.setBorder(new EmptyBorder(15, 22, 8, 22)); JLabel title = new JLabel("PREVIEW   ·   current composition"); title.setForeground(palette.muted); toolbar.add(title); canvasPanel.add(toolbar, BorderLayout.NORTH); canvasPanel.add(preview, BorderLayout.CENTER); backendStatus.setForeground(palette.muted); backendStatus.setBorder(new EmptyBorder(6, 22, 2, 22)); performanceStatus.setForeground(palette.muted); performanceStatus.setFont(performanceStatus.getFont().deriveFont(10f)); performanceStatus.setBorder(new EmptyBorder(0, 22, 7, 22)); debugPanel.setOpaque(false); debugPanel.add(backendStatus); debugPanel.add(performanceStatus); debugPanel.setVisible(preferences.getBoolean("showDebug", preferences.getBoolean("showPerformanceStats", false))); performanceStatus.setVisible(debugPanel.isVisible()); canvasPanel.add(debugPanel, BorderLayout.SOUTH); return canvasPanel;
+    }
+
+    private void configureSplitters(JSplitPane outer) {
+        JSplitPane inner = (JSplitPane) outer.getLeftComponent();
+        for (JSplitPane split : List.of(inner, outer)) {
+            split.setContinuousLayout(true); split.setOneTouchExpandable(false); split.setBorder(null);
+            split.setDividerSize(4); split.setResizeWeight(split == inner ? 0.0 : 1.0);
+            split.setBackground(palette.background);
+            split.setUI(new javax.swing.plaf.basic.BasicSplitPaneUI() {
+                @Override public BasicSplitPaneDivider createDefaultDivider() {
+                    return new BasicSplitPaneDivider(this) {
+                        @Override public void paint(Graphics graphics) {
+                            Graphics2D g = (Graphics2D) graphics.create();
+                            g.setColor(palette.accent); g.fillRect(0, 0, getWidth(), getHeight());
+                            g.setColor(Palette.contrastText(palette.accent));
+                            int cx = getWidth() / 2, cy = getHeight() / 2;
+                            g.fillRoundRect(cx - 1, cy - 12, 2, 24, 2, 2);
+                            g.dispose();
+                        }
+                    };
+                }
+            });
+            split.setMinimumSize(new Dimension(0, 0));
+        }
+        sourcesPanelRef.setMinimumSize(new Dimension(70, 0));
+        propertiesPanelRef.setMinimumSize(new Dimension(70, 0));
+        inner.setDividerLocation(265); outer.setDividerLocation(Math.max(0, getWidth() - 300));
+        splitpaneRemoveBottomArtifacts(outer);
+    }
+
+    private void splitpaneRemoveBottomArtifacts(JSplitPane outer) {
+        JSplitPane inner = (JSplitPane) outer.getLeftComponent();
+        outer.setBackground(palette.background); inner.setBackground(palette.background);
+        configuration.setBackground(palette.background);
+    }
+
+    private JComponent propertiesPanel() {
+        GlassPanel panel = new GlassPanel(palette);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(new EmptyBorder(16, 16, 14, 16));
+        panel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.add(muted("SELECTED SOURCE"));
+        layerTitle.setFont(layerTitle.getFont().deriveFont(Font.BOLD, 19f));
+        layerTitle.setOpaque(false); layerTitle.setForeground(palette.text); layerTitle.setEditable(false); layerTitle.setFocusable(false); layerTitle.setLineWrap(true); layerTitle.setWrapStyleWord(true);
+        layerTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 54));
+        layerTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        layerTitle.setOpaque(false);
+        panel.add(layerTitle);
+        panel.add(Box.createVerticalStrut(20));
+        panel.add(sectionTitle("APPEARANCE"));
+        panel.add(Box.createVerticalStrut(10));
+        JPanel opacityRow = transparent(new BorderLayout());
+        opacityRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22)); opacityRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        opacityRow.add(propertyLabel("Opacity"), BorderLayout.WEST);
+        opacityRow.add(percentageEditor(opacity), BorderLayout.EAST);
+        panel.add(opacityRow);
+        opacity.setOpaque(false);
+        opacity.setUI(new AccentSliderUI(opacity, palette));
+        opacity.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30)); opacity.setAlignmentX(Component.CENTER_ALIGNMENT);
+        opacity.addChangeListener(event -> {
+            Source source = sourceList.getSelectedValue();
+            if (source != null) { source.opacity = opacity.getValue(); backend.setOpacity(source.opacity); preview.repaint(); }
+        });
+        panel.add(opacity);
+        panel.add(Box.createVerticalStrut(12));
+        JPanel scaleRow = transparent(new BorderLayout());
+        scaleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22)); scaleRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+        scaleRow.add(propertyLabel("Size"), BorderLayout.WEST);
+        scaleRow.add(percentageEditor(scale), BorderLayout.EAST);
+        panel.add(scaleRow);
+        scale.setOpaque(false);
+        scale.setUI(new AccentSliderUI(scale, palette));
+        scale.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30)); scale.setAlignmentX(Component.CENTER_ALIGNMENT);
+        scale.addChangeListener(event -> {
+            Source source = sourceList.getSelectedValue();
+            if (source != null) {
+                int next = scale.getValue();
+                if (source.scaleX >= 0 && source.scale > 0) source.scaleX = source.scaleX * next / source.scale;
+                if (source.scaleY >= 0 && source.scale > 0) source.scaleY = source.scaleY * next / source.scale;
+                source.scale = next; preview.repaint();
+            }
+        });
+        panel.add(scale);
+        panel.add(Box.createVerticalStrut(18));
+        panel.add(sectionTitle("SOURCE TOOLS"));
+        panel.add(Box.createVerticalStrut(10));
+        JButton configureSource = toolButton("Configure source…", "Change target or capture method");
+        configureSource.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30)); configureSource.setAlignmentX(Component.CENTER_ALIGNMENT);
+        configureSource.addActionListener(event -> configureSelectedSource());
+        panel.add(configureSource);
+        panel.add(Box.createVerticalStrut(8));
+        JButton reset = toolButton("Reset size and position", "Reset source transform");
+        reset.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30)); reset.setAlignmentX(Component.CENTER_ALIGNMENT);
+        reset.addActionListener(event -> resetTransform());
+        panel.add(reset);
+        panel.add(Box.createVerticalStrut(10));
+        JLabel hint = muted("<html>Drag in the preview to move. Drag edge handles to resize; hold Shift to stretch.</html>");
+        hint.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38)); hint.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.add(hint);
+        panel.add(Box.createVerticalGlue());
+        JPanel modeActions = new GlassPanel(palette); modeActions.setLayout(new GridLayout(0, 1, 0, 8)); modeActions.setBorder(new EmptyBorder(12, 12, 12, 12)); modeActions.setMaximumSize(new Dimension(Integer.MAX_VALUE, 156)); modeActions.setAlignmentX(Component.CENTER_ALIGNMENT);
+        modeActions.add(muted("MULTITASK")); JButton snapshot = quietButton("Snapshot"); snapshot.addActionListener(event -> { backend.requestSnapshot(); showNotice("Snapshot", "Temporary snapshot requested. It will be deleted after seven days."); }); modeActions.add(snapshot);
+        JButton start = primaryButton("Start multitasking"); start.addActionListener(event -> setMultitask(true)); modeActions.add(start);
+        JButton settings = quietButton("Settings"); settings.addActionListener(event -> showMultitaskSettings()); modeActions.add(settings);
+        panel.add(modeActions);
+        panel.setPreferredSize(new Dimension(300, 0)); panel.setMinimumSize(new Dimension(70, 0));
+        return panel;
+    }
+
+    private void switchView(View view) { if (multitask) return; activeView = view; for (Map.Entry<View, AbstractButton> entry : viewButtons.entrySet()) entry.getValue().setSelected(entry.getKey() == view); viewTitle.setText(view.name); sourceList.setModel(view.sources); sourceList.setSelectedIndex(Math.min(1, view.sources.size() - 1)); preview.setView(view); }
+    private void syncSelection() { Source source = sourceList.getSelectedValue(); if (source != null) { layerTitle.setText(source.name); opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
+    private void setControlTarget(int index) {
+        if (index < 0 || index >= activeView.sources.size()) return;
+        activeView.controlSource = index;
+        Source source = activeView.sources.get(index);
+        String target = source.kind == Source.Kind.DISPLAY || source.inputTarget.isBlank() ? "desktop" : source.inputTarget;
+        boolean desktopInput = source.kind == Source.Kind.DISPLAY;
+        Rectangle mapped = new Rectangle(), excluded = new Rectangle();
+        if (multitask && source.kind == Source.Kind.WINDOW) {
+            try { mapped = preview.sourceBoundsOnScreen(index); } catch (IllegalComponentStateException ignored) { }
+        }
+        if (multitaskExitButton != null && multitaskExitButton.isShowing()) {
+            try {
+                Point buttonLocation = multitaskExitButton.getLocationOnScreen();
+                excluded = PreviewPanel.toPhysicalScreenBounds(
+                    new Rectangle(buttonLocation.x, buttonLocation.y, multitaskExitButton.getWidth(), multitaskExitButton.getHeight()),
+                    multitaskExitButton.getGraphicsConfiguration());
+            }
+            catch (IllegalComponentStateException ignored) { }
+        }
+        backend.setInputTarget(target, source.nativeWindowHandle, mapped.x, mapped.y, mapped.width, mapped.height,
+            excluded.x, excluded.y, excluded.width, excluded.height, desktopInput);
+        multitaskInputLabel.setText("Input target: " + source.name); updateControlIndicator(); preview.repaint();
+    }
+    private void refreshNativeLayerLayout() {
+        if (!multitask || multitaskWindow == null) return;
+        // The preview owns the visual composition. Cutting out window sources
+        // exposed their real HWNDs, so focusing an input target also changed
+        // what was visible regardless of the source order.
+        multitaskWindow.setShape(null);
+        StringBuilder items = new StringBuilder();
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        for (int i = 0; i < activeView.sources.size(); i++) {
+            Source source = activeView.sources.get(i);
+            if (!source.visible || source.kind != Source.Kind.WINDOW || source.nativeWindowHandle == 0
+                || !seen.add(source.nativeWindowHandle)) continue;
+            Rectangle bounds;
+            try { bounds = preview.sourceBoundsOnScreen(i); }
+            catch (IllegalComponentStateException error) { continue; }
+            if (bounds.width <= 0 || bounds.height <= 0) continue;
+            if (items.length() > 0) items.append(',');
+            items.append("{\"hwnd\":").append(source.nativeWindowHandle)
+                .append(",\"x\":").append(bounds.x).append(",\"y\":").append(bounds.y)
+                .append(",\"width\":").append(bounds.width).append(",\"height\":").append(bounds.height)
+                .append(",\"opacity\":").append(source.opacity).append('}');
+        }
+        backend.send("{\"command\":\"set_layer_layout\",\"items\":[" + items + "]}");
+    }
+    private Color nextControlColor(Source source) {
+        Color[] colors = {new Color(166, 111, 224), new Color(77, 190, 135), new Color(239, 153, 71), new Color(76, 190, 210), new Color(232, 102, 144), new Color(230, 199, 76), new Color(105, 145, 245)};
+        int index = 0;
+        for (Color color : colors) { boolean used = false; for (int i = 0; i < activeView.sources.size(); i++) { Source other = activeView.sources.get(i); if (other != source && other.quickSwapInput && color.equals(other.controlColor)) used = true; } if (!used) return color; index++; }
+        return colors[Math.floorMod(index + activeView.sources.size(), colors.length)];
+    }
+    private void updateControlIndicator() {
+        if (multitaskExitButton == null || activeView.sources.isEmpty()) return;
+        int i = Math.max(0, Math.min(activeView.controlSource, activeView.sources.size() - 1));
+        Color color = activeView.sources.get(i).controlColor;
+        multitaskExitButton.setBackground(color.darker()); multitaskExitButton.setBorder(BorderFactory.createLineBorder(color, 2));
+        multitaskExitButton.repaint();
+        if (multitaskTargetLabel != null && multitaskControls != null && multitaskControls.isVisible()) {
+            Source source = activeView.sources.get(i);
+            String shown = source.name.length() > 28 ? source.name.substring(0, 27) + "…" : source.name;
+            multitaskTargetLabel.setText(shown);
+            multitaskTargetLabel.setToolTipText(source.name);
+            multitaskTargetLabel.setForeground(color);
+            multitaskTargetLabel.setVisible(true);
+            if (inputNoticeTimer != null) inputNoticeTimer.restart();
+        }
+    }
+    private Rectangle multitaskCaptureExclusion() {
+        if (multitaskControls != null && multitaskControls.isVisible()) return multitaskControls.getBounds();
+        return getBounds();
+    }
+    private String keyBindingForEvent(KeyEvent event) {
+        int code = event.getKeyCode();
+        if (code == KeyEvent.VK_CONTROL && event.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT) return "RIGHT_CTRL";
+        if (code == KeyEvent.VK_CONTROL || code == KeyEvent.VK_SHIFT || code == KeyEvent.VK_ALT || code == KeyEvent.VK_ALT_GRAPH || code == KeyEvent.VK_META) return null;
+        String key = KeyEvent.getKeyText(code).toUpperCase(java.util.Locale.ROOT).replace(' ', '_');
+        StringBuilder binding = new StringBuilder();
+        if ((event.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) binding.append("CTRL+");
+        if ((event.getModifiersEx() & KeyEvent.SHIFT_DOWN_MASK) != 0) binding.append("SHIFT+");
+        if ((event.getModifiersEx() & KeyEvent.ALT_DOWN_MASK) != 0) binding.append("ALT+");
+        return binding.append(key).toString();
+    }
+    private String prettyKeyBinding(String binding) { return "RIGHT_CTRL".equals(binding) ? "Right Ctrl" : binding.replace("_", " ").replace("+", " + "); }
+    private void displayFrameArrived(int deviceIndex, java.awt.image.BufferedImage frame) {
+        pendingDisplayFrames.put(deviceIndex, frame);
+        queueDisplayFrameUpdate();
+    }
+
+    private void queueDisplayFrameUpdate() {
+        if (!displayFrameUpdateQueued.compareAndSet(false, true)) return;
+        SwingUtilities.invokeLater(() -> {
+            try {
+                for (Map.Entry<Integer, BufferedImage> entry : pendingDisplayFrames.entrySet()) {
+                    int index = entry.getKey(); BufferedImage frame = entry.getValue();
+                    if (!pendingDisplayFrames.remove(index, frame)) continue;
+                    for (View view : views) for (int i = 0; i < view.sources.size(); i++) {
+                        Source source = view.sources.get(i);
+                        if (source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == index) source.liveFrame = frame;
+                    }
+                }
+                preview.repaint();
+            } finally {
+                displayFrameUpdateQueued.set(false);
+                if (!pendingDisplayFrames.isEmpty()) queueDisplayFrameUpdate();
+            }
+        });
+    }
+
+    private void cycleQuickSwapTarget() {
+        List<Integer> targets = new ArrayList<>();
+        for (int i = 0; i < activeView.sources.size(); i++) {
+            Source source = activeView.sources.get(i);
+            if (source.visible && source.quickSwapInput && (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME)) targets.add(i);
+        }
+        if (targets.isEmpty()) { backendStatus.setText("Enable a source’s lightning bolt to use Right Ctrl input swap"); multitaskInputLabel.setText("Input target: no quick-swap sources enabled"); return; }
+        int current = targets.indexOf(activeView.controlSource);
+        int next = targets.get((current + 1) % targets.size());
+        setControlTarget(next);
+        backendStatus.setText("Input target: " + activeView.sources.get(next).name + " · Right Ctrl to switch");
+    }
+    private void swapVisibleLayers() {
+        List<Integer> visibleIndices = new ArrayList<>();
+        for (int i = 0; i < activeView.sources.size(); i++) {
+            if (activeView.sources.get(i).visible) visibleIndices.add(i);
+        }
+        if (visibleIndices.size() < 2) return;
+        Source controlled = activeView.sources.get(activeView.controlSource);
+        List<Source> visibleSources = new ArrayList<>();
+        for (int index : visibleIndices) visibleSources.add(activeView.sources.get(index));
+        for (int i = 0; i < visibleIndices.size(); i++) {
+            activeView.sources.set(visibleIndices.get(i), visibleSources.get((i + visibleSources.size() - 1) % visibleSources.size()));
+        }
+        activeView.controlSource = activeView.sources.indexOf(controlled);
+        sourceList.repaint(); preview.repaint();
+        refreshNativeLayerLayout();
+        String topName = activeView.sources.get(visibleIndices.get(0)).name;
+        backendStatus.setText("Visual top: " + topName + " · input stays on " + controlled.name);
+        if (multitaskTargetLabel != null) {
+            multitaskTargetLabel.setText("Top: " + topName);
+            multitaskTargetLabel.setVisible(true);
+            if (inputNoticeTimer != null) inputNoticeTimer.restart();
+        }
+    }
+    private void addView() { String name = promptText("New view", "View name:", ""); if (name != null && !name.trim().isEmpty()) { View view = new View(name.trim()); views.add(view); JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); topBar.add(tab, 2 + viewButtons.size()); viewButtons.put(view, tab); topBar.revalidate(); switchView(view); } }
+    private void addSource() {
+        Source.Kind kind = chooseSourceKind();
+        if (kind == null) return;
+        String target = "";
+        PythonBridge.WindowTarget windowTarget = null;
+        if (kind == Source.Kind.WINDOW) {
+            windowTarget = chooseWindowTarget();
+            if (windowTarget == null) return;
+            target = windowTarget.title;
+        }
+        if (kind == Source.Kind.GAME && !backend.gameAvailable()) { showGameCaptureInfo(); return; }
+        int selectedDisplay = 0;
+        if (kind == Source.Kind.DISPLAY) {
+            selectedDisplay = chooseDisplayDevice();
+            if (selectedDisplay < 0) return;
+        }
+        if (kind == Source.Kind.IMAGE && !loadImageSource()) return;
+        String defaultName = kind == Source.Kind.DISPLAY ? "Display " + (selectedDisplay + 1) + " - DC"
+            : kind == Source.Kind.IMAGE ? (pendingImageName == null ? "Image" : pendingImageName) + " - IMG"
+            : kind == Source.Kind.GAME ? "Game - GC" : kind.label;
+        String name = kind == Source.Kind.WINDOW ? pendingWindowSourceName : promptText("Set up " + kind.label.toLowerCase(), "Source name:", defaultName);
+        boolean manuallyNamed = kind == Source.Kind.WINDOW && pendingWindowNameManual;
+        pendingWindowSourceName = null;
+        pendingWindowNameManual = false;
+        if (name == null || name.trim().isEmpty()) return;
+        name = uniqueSourceName(name.trim());
+        Source source = new Source(name, kind); source.customName = manuallyNamed || kind != Source.Kind.WINDOW; source.inputTarget = target.trim();
+        if (kind == Source.Kind.GAME) {
+            source.scale = 100; source.x = 0; source.y = 0;
+            source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".game").toString();
+            source.activeCaptureBackend = "DirectX 11 test capture · connecting";
+            backend.startGameCapture(source.captureFramePath);
+        }
+        if (kind == Source.Kind.WINDOW) {
+            GraphicsDevice screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+            int screenWidth = Math.max(1, screen.getDisplayMode().getWidth());
+            int screenHeight = Math.max(1, screen.getDisplayMode().getHeight());
+            // PreviewPanel already maps captured pixels to display pixels. Scaling
+            // here as well made each new window much smaller than its real size.
+            source.scale = 100;
+            source.x = Math.max(0, Math.min(100, (int) Math.round(100.0 * windowTarget.left
+                / Math.max(1, screenWidth - windowTarget.width))));
+            source.y = Math.max(0, Math.min(100, (int) Math.round(100.0 * windowTarget.top
+                / Math.max(1, screenHeight - windowTarget.height))));
+        }
+        source.displayDeviceIndex = selectedDisplay;
+        if (source.quickSwapInput) source.controlColor = nextControlColor(source);
+        if (kind == Source.Kind.WINDOW) {
+            source.nativeWindowHandle = windowTarget.hwnd;
+            source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".bmp").toString();
+            backend.registerWindowCapture(source.name, target.trim(), source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
+            source.inputTarget = target.trim();
+        }
+        if (kind == Source.Kind.IMAGE) { source.liveFrame = pendingImage; pendingImageName = null; pendingImage = null; }
+        activeView.sources.add(0, source); sourceList.setSelectedIndex(0); preview.repaint();
+    }
+
+    private BufferedImage pendingImage;
+
+    private String uniqueSourceName(String requested) {
+        return uniqueSourceName(requested, null);
+    }
+
+    private String uniqueSourceName(String requested, Source ignored) {
+        String base = requested.trim();
+        if (!sourceNameExists(base, ignored)) return base;
+        for (int number = 2; ; number++) {
+            String candidate = base + " (" + number + ")";
+            if (!sourceNameExists(candidate, ignored)) return candidate;
+        }
+    }
+
+    private String automaticWindowSourceName(PythonBridge.WindowTarget target) {
+        String executable = target.process == null ? "" : target.process.trim();
+        int slash = Math.max(executable.lastIndexOf('/'), executable.lastIndexOf('\\'));
+        if (slash >= 0) executable = executable.substring(slash + 1);
+        executable = executable.replaceAll("^\\[[^]]+\\]:?\\s*", "");
+        if (executable.toLowerCase(java.util.Locale.ROOT).endsWith(".exe")) executable = executable.substring(0, executable.length() - 4);
+        String key = executable.toLowerCase(java.util.Locale.ROOT);
+        String title = target.title == null ? "" : target.title.trim().replaceFirst("^\\[[^]]+\\]:?\\s*", "");
+        title = title.replaceFirst("\\s+[—–-]\\s+window\\s+\\d+$", "").trim();
+        String titleKey = title.toLowerCase(java.util.Locale.ROOT);
+        String display;
+        switch (key) {
+            case "explorer": display = "File Explorer"; break;
+            case "chrome": display = "Chrome"; break;
+            case "brave": display = "Brave"; break;
+            case "msedge": display = "Microsoft Edge"; break;
+            case "firefox": display = "Firefox"; break;
+            case "spotify": display = "Spotify"; break;
+            case "discord": display = "Discord"; break;
+            case "chatgpt": display = "ChatGPT"; break;
+            default:
+                if (titleKey.contains("chatgpt")) display = "ChatGPT";
+                else if (titleKey.contains("spotify")) display = "Spotify";
+                else if (titleKey.contains("discord")) display = "Discord";
+                else if (titleKey.contains("notepad")) display = "Notepad";
+                else if (titleKey.contains("file explorer") || titleKey.equals("home") || titleKey.startsWith("home -")) display = "File Explorer";
+                else if (titleKey.contains("brave")) display = "Brave";
+                else if (titleKey.contains("chrome")) display = "Chrome";
+                else if (titleKey.contains("firefox")) display = "Firefox";
+                else if (titleKey.contains("edge")) display = "Microsoft Edge";
+                else if (executable.isBlank() || key.equals("application") || key.equals("window")) display = title.isBlank() ? "Window" : title;
+                else display = executable.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + executable.substring(1);
+                break;
+        }
+        if (display.length() > 36) display = display.substring(0, 35).trim() + "…";
+        return display + " - WC";
+    }
+
+    private boolean sourceNameExists(String candidate) {
+        return sourceNameExists(candidate, null);
+    }
+
+    private boolean sourceNameExists(String candidate, Source ignored) {
+        for (View view : views) for (int i = 0; i < view.sources.size(); i++)
+            if (view.sources.get(i) != ignored && view.sources.get(i).name.equalsIgnoreCase(candidate)) return true;
+        return false;
+    }
+
+    private int effectiveCaptureFps() {
+        int refresh = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode().getRefreshRate();
+        if (refresh <= 0) refresh = 60;
+        return Math.max(1, Math.min(240, performanceFps == 0 ? refresh : Math.min(performanceFps, refresh)));
+    }
+
+    private void applyPerformanceFps(int fps) {
+        performanceFps = Math.max(0, Math.min(240, fps));
+        preferences.putInt("captureFps", performanceFps);
+        preferences.putBoolean("captureFpsChoiceV2", true);
+        int delay = Math.max(1, (int) Math.ceil(1000.0 / effectiveCaptureFps()));
+        windowFrameTimer.setDelay(delay);
+        windowFrameTimer.setInitialDelay(delay);
+        GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+        for (int i = 0; i < displayCaptures.size(); i++) {
+            int refresh = i < screens.length ? screens[i].getDisplayMode().getRefreshRate() : 0;
+            displayCaptures.get(i).setTargetFps(Math.min(effectiveCaptureFps(), refresh > 0 ? refresh : 60));
+        }
+        backend.setCaptureFps(effectiveCaptureFps());
+    }
+
+    private void refreshPerformanceStats() {
+        if (!performanceStatus.isVisible()) return;
+        double captureFps = 0, captureFrameMs = 0;
+        for (DisplayCapture capture : displayCaptures) {
+            captureFps += capture.getMeasuredFps();
+            captureFrameMs = Math.max(captureFrameMs, capture.getLastFrameMillis());
+        }
+        if (!displayCaptures.isEmpty()) {
+            captureFps /= displayCaptures.size();
+        }
+        performanceStatus.setText(String.format(java.util.Locale.ROOT,
+            "Preview paint %.1f FPS · Display capture %.1f FPS · Paint %.1f ms · Capture %.1f ms · accelerated surfaces %d",
+            preview.getMeasuredFps(), captureFps, preview.getLastPaintMillis(), captureFrameMs,
+            preview.getAcceleratedSourceCount()));
+        Source selected = sourceList.getSelectedValue();
+        if (selected != null && selected.captureFramePath != null) {
+            long before = lastFrameCounts.getOrDefault(selected, selected.capturedFrames);
+            long unique = Math.max(0, selected.capturedFrames - before);
+            lastFrameCounts.put(selected, selected.capturedFrames);
+            performanceStatus.setText(performanceStatus.getText() + String.format(java.util.Locale.ROOT,
+                " · %s %.0f unique FPS · frame age %d ms · skipped %d · %d×%d",
+                selected.activeCaptureBackend, (double) unique, selected.captureLatencyMillis,
+                selected.skippedFrames, selected.liveFrame == null ? 0 : selected.liveFrame.getWidth(),
+                selected.liveFrame == null ? 0 : selected.liveFrame.getHeight()));
+        }
+    }
+
+    private PythonBridge.WindowTarget chooseWindowTarget() {
+        JDialog dialog = dialog("Select a window");
+        JPanel body = dialogBody();
+        JPanel heading = transparent(new GridLayout(0, 1, 0, 7));
+        heading.add(sectionTitle("DETECTED WINDOWS"));
+        heading.add(propertyLabel("Source name"));
+        JTextField sourceName = new JTextField(); sourceName.setForeground(palette.text); sourceName.setBackground(palette.controlSurface()); sourceName.setOpaque(true); sourceName.setCaretColor(palette.text); sourceName.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line), new EmptyBorder(7, 9, 7, 9))); sourceName.setPreferredSize(new Dimension(0, 34)); heading.add(sourceName); body.add(heading, BorderLayout.NORTH);
+        boolean[] manualName = {false}, settingSuggestedName = {false};
+        sourceName.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void changed() { if (!settingSuggestedName[0]) manualName[0] = true; }
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent event) { changed(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent event) { changed(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent event) { changed(); }
+        });
+        JComboBox<PythonBridge.WindowTarget> windows = new JComboBox<>();
+        styleCombo(windows); windows.setPreferredSize(new Dimension(0, 34)); windows.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        windows.addActionListener(event -> {
+            PythonBridge.WindowTarget selected = (PythonBridge.WindowTarget) windows.getSelectedItem();
+            if (selected != null && !manualName[0]) {
+                settingSuggestedName[0] = true; sourceName.setText(automaticWindowSourceName(selected)); settingSuggestedName[0] = false;
+            }
+        });
+        JLabel status = new JLabel("Scanning…"); status.setForeground(palette.muted);
+        JButton refresh = toolButton("Scan again", "Refresh the list of open windows");
+        Runnable scan = () -> {
+            status.setText("Scanning open windows…"); refresh.setEnabled(false);
+            backend.requestWindowList(found -> SwingUtilities.invokeLater(() -> {
+                DefaultComboBoxModel<PythonBridge.WindowTarget> model = new DefaultComboBoxModel<>();
+                for (PythonBridge.WindowTarget item : found) model.addElement(item);
+                windows.setModel(model); refresh.setEnabled(true);
+                status.setText(found.isEmpty() ? "No windows found. Check that the capture service is running." : found.size() + " windows found · choose one to capture");
+            }));
+        };
+        refresh.addActionListener(event -> scan.run());
+        JPanel row = transparent(new BorderLayout(8, 0)); row.add(windows, BorderLayout.CENTER); row.add(refresh, BorderLayout.EAST);
+        JPanel center = transparent(new BorderLayout(0, 8)); center.add(row, BorderLayout.NORTH); center.add(status, BorderLayout.CENTER); body.add(center, BorderLayout.CENTER);
+        PythonBridge.WindowTarget[] result = {null};
+        JButton cancel = toolButton("Cancel", "Close without adding a source"); cancel.addActionListener(event -> dialog.dispose());
+        JButton select = primaryButton("Capture selected window"); select.addActionListener(event -> { result[0] = (PythonBridge.WindowTarget) windows.getSelectedItem(); if (result[0] != null && !sourceName.getText().trim().isEmpty()) { pendingWindowSourceName = sourceName.getText().trim(); pendingWindowNameManual = manualName[0]; dialog.dispose(); } });
+        JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); actions.add(cancel); actions.add(select); body.add(actions, BorderLayout.SOUTH);
+        dialog.setContentPane(body); dialog.setSize(600, 300); dialog.setMinimumSize(new Dimension(520, 280)); dialog.setLocationRelativeTo(this); scan.run(); dialog.setVisible(true);
+        return result[0];
+    }
+
+    private int chooseDisplayDevice() {
+        GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+        if (devices.length == 0) return -1;
+        JComboBox<String> choices = new JComboBox<>();
+        for (int i = 0; i < devices.length; i++) {
+            DisplayMode mode = devices[i].getDisplayMode();
+            choices.addItem("Display " + (i + 1) + " (" + devices[i].getIDstring() + ") — " + mode.getWidth() + " × " + mode.getHeight() + (devices[i].equals(GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()) ? " — primary" : ""));
+        }
+        int result = JOptionPane.showConfirmDialog(this, choices, "Choose a physical display", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        return result == JOptionPane.OK_OPTION ? choices.getSelectedIndex() : -1;
+    }
+
+    private void showGameCaptureInfo() {
+        showNotice("Game capture unavailable",
+            "The native DirectX 11 test backend is not built or could not start. Install the MSVC x64 C++ tools and Windows SDK, " +
+            "then run scripts/build-native.ps1 in x64 Developer PowerShell. This controlled test backend does not hook third-party games.");
+    }
+
+    private void showMultitaskSettings() {
+        settingsHotkeyRecording = true;
+        stagedSwapKeyBinding = swapKeyBinding; stagedLayerSwapKeyBinding = layerSwapKeyBinding; stagedStopKeyBinding = stopKeyBinding;
+        JDialog dialog = dialog("Settings");
+        JPanel body = dialogBody();
+        JPanel fields = transparent(new GridLayout(0, 1, 0, 5));
+        fields.setBorder(new EmptyBorder(2, 0, 8, 0));
+        fields.add(settingsGroup("Appearance"));
+        JComboBox<String> stagedAccent = new JComboBox<>(new String[]{"Blue", "Red", "Orange", "Yellow", "Green", "Purple", "White", "Black", "Custom…"});
+        styleCombo(stagedAccent); stagedAccent.setFocusable(false); stagedAccent.setSelectedItem(accentMode.getSelectedItem());
+        stagedAccent.setPreferredSize(new Dimension(150, 30));
+        fields.add(settingsRow("Accent colour", "Highlights and active controls", stagedAccent));
+        fields.add(settingsGroup("Keyboard shortcuts"));
+        swapKeyButton = toolButton(prettyKeyBinding(swapKeyBinding), "Click to record a key or key combination");
+        styleKeyButton(swapKeyButton);
+        swapKeyButton.addActionListener(event -> { recordingSwapKey = true; swapKeyButton.setText("Press keys…  ·  Esc to cancel"); }); fields.add(settingsRow("Swap input", "Choose the controlled source", swapKeyButton));
+        layerSwapKeyButton = toolButton(layerSwapKeyBinding.isBlank() ? "Unassigned" : prettyKeyBinding(layerSwapKeyBinding),
+            "Click and press a shortcut; Backspace clears it");
+        styleKeyButton(layerSwapKeyButton);
+        layerSwapKeyButton.addActionListener(event -> { recordingLayerSwapKey = true; layerSwapKeyButton.setText("Press keys…  ·  Esc to cancel"); });
+        fields.add(settingsRow("Swap visual layers", "Bring the next layer to the top", layerSwapKeyButton));
+        stopKeyButton = toolButton(prettyKeyBinding(stopKeyBinding), "Click to record the stop-multitasking key");
+        styleKeyButton(stopKeyButton);
+        stopKeyButton.addActionListener(event -> { recordingStopKey = true; stopKeyButton.setText("Press keys…  ·  Esc to cancel"); }); fields.add(settingsRow("Stop multitasking", "Exit the overlay", stopKeyButton));
+        fields.add(settingsGroup("Multitasking"));
+        JComboBox<String> corner = new JComboBox<>(new String[]{"Top-center", "Top-left", "Top-right", "Bottom-left", "Bottom-right"}); styleCombo(corner); corner.setSelectedIndex(revealCornerIndex); corner.setPreferredSize(new Dimension(150, 30)); fields.add(settingsRow("Exit button corner", "Position of the overlay close button", corner));
+        fields.add(settingsGroup("Performance & diagnostics"));
+        JComboBox<String> fps = new JComboBox<>(new String[]{"Auto (monitor refresh)", "30 FPS", "60 FPS", "90 FPS", "120 FPS", "144 FPS", "165 FPS", "240 FPS"});
+        fps.setSelectedItem(performanceFps == 0 ? "Auto (monitor refresh)" : performanceFps + " FPS"); styleCombo(fps); fps.setPreferredSize(new Dimension(170, 30)); fields.add(settingsRow("Capture target", "Maximum preview and capture rate", fps));
+        JCheckBox showStats = new JCheckBox("Show debug output", debugPanel.isVisible());
+        showStats.setOpaque(false); showStats.setForeground(palette.text); showStats.setIcon(new AccentCheckIcon(palette)); fields.add(settingsRow("Diagnostics", "Show status and performance details", showStats));
+        boolean originalDebugVisibility = debugPanel.isVisible();
+        boolean[] settingsApplied = {false};
+        JLabel statsNote = new JLabel("Higher targets may increase CPU/GPU load; actual rates depend on capture support and hardware.");
+        statsNote.setForeground(palette.muted); statsNote.setFont(statsNote.getFont().deriveFont(10f)); fields.add(statsNote);
+        body.add(fields, BorderLayout.CENTER);
+        JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); JButton cancel = toolButton("Cancel", "Close without applying"); cancel.addActionListener(event -> dialog.dispose());
+        Runnable applySettings = () -> {
+            recordingSwapKey = false; recordingStopKey = false; recordingLayerSwapKey = false;
+            swapKeyBinding = stagedSwapKeyBinding; layerSwapKeyBinding = stagedLayerSwapKeyBinding; stopKeyBinding = stagedStopKeyBinding;
+            updateHotkeyHints();
+            accentMode.setSelectedItem(stagedAccent.getSelectedItem()); applyAccent();
+            revealCornerIndex = corner.getSelectedIndex();
+            String selectedFps = String.valueOf(fps.getSelectedItem());
+            applyPerformanceFps(selectedFps.startsWith("Auto") ? 0 : Integer.parseInt(selectedFps.split(" ")[0]));
+            preferences.putBoolean("showDebug", showStats.isSelected());
+            preferences.putBoolean("showPerformanceStats", showStats.isSelected());
+            setDebugVisible(showStats.isSelected());
+            refreshPerformanceStats();
+            if (multitask) backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
+            settingsApplied[0] = true;
+        };
+        JButton apply = quietButton("Apply"); apply.addActionListener(event -> applySettings.run());
+        JButton ok = primaryButton("OK"); ok.addActionListener(event -> { applySettings.run(); dialog.dispose(); });
+        actions.add(cancel); actions.add(apply); actions.add(ok); body.add(actions, BorderLayout.SOUTH);
+        dialog.addWindowListener(new WindowAdapter() { @Override public void windowClosed(WindowEvent event) { recordingSwapKey = false; recordingStopKey = false; recordingLayerSwapKey = false; settingsHotkeyRecording = false; if (!settingsApplied[0]) setDebugVisible(originalDebugVisibility); } });
+        dialog.setContentPane(body); dialog.setSize(480, 600); dialog.setMinimumSize(new Dimension(460, 560)); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+    }
+    private void setDebugVisible(boolean visible) {
+        debugPanel.setVisible(visible); performanceStatus.setVisible(visible);
+        canvasPanel.revalidate(); canvasPanel.repaint();
+    }
+    private JPanel settingsGroup(String title) {
+        JPanel group = transparent(new BorderLayout());
+        JLabel heading = new JLabel(title); heading.setForeground(palette.text);
+        heading.setFont(heading.getFont().deriveFont(Font.BOLD, 13f));
+        heading.setBorder(new EmptyBorder(9, 0, 4, 0));
+        group.add(heading, BorderLayout.NORTH);
+        JSeparator rule = new JSeparator(); rule.setForeground(palette.line); group.add(rule, BorderLayout.SOUTH);
+        return group;
+    }
+    private JPanel settingsRow(String title, String description, JComponent control) {
+        JPanel row = transparent(new BorderLayout(18, 0));
+        JPanel copy = transparent(new GridLayout(0, 1, 0, 2));
+        JLabel name = new JLabel(title); name.setForeground(palette.text);
+        JLabel detail = new JLabel(description); detail.setForeground(palette.muted); detail.setFont(detail.getFont().deriveFont(10f));
+        copy.add(name); copy.add(detail); row.add(copy, BorderLayout.CENTER);
+        control.setPreferredSize(new Dimension(170, 31)); row.add(control, BorderLayout.EAST);
+        row.setBorder(new EmptyBorder(4, 0, 4, 0)); row.setMinimumSize(new Dimension(0, 39)); row.setPreferredSize(new Dimension(400, 43));
+        return row;
+    }
+    private void styleKeyButton(JButton button) {
+        button.setHorizontalAlignment(SwingConstants.CENTER);
+        button.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(palette.accent, 1),
+            new EmptyBorder(4, 8, 4, 8)));
+        button.setToolTipText("Click to record a shortcut. Press Escape to cancel recording.");
+    }
+    private void updateHotkeyHints() {
+        inputKeyHint.setText(prettyKeyBinding(swapKeyBinding) + " swaps input");
+        layerKeyHint.setText(layerSwapKeyBinding.isBlank() ? "Layer swap: unassigned" :
+            prettyKeyBinding(layerSwapKeyBinding) + " swaps layers");
+        inputKeyHint.setToolTipText("Change in Settings → Swap input keybind");
+        layerKeyHint.setToolTipText("Change in Settings → Swap visual layers key");
+        inputKeyHint.revalidate(); layerKeyHint.revalidate();
+    }
+    private void updateRecordingButton(JButton button, String value) {
+        if (button != null) button.setText(value == null || value.isBlank() ? "Unassigned" : prettyKeyBinding(value));
+    }
+    private void styleScrollBar(JScrollBar bar) {
+        bar.setUI(new javax.swing.plaf.basic.BasicScrollBarUI() {
+            @Override protected void configureScrollBarColors() {
+                thumbColor = palette.accent; trackColor = palette.primary;
+            }
+            @Override protected JButton createDecreaseButton(int orientation) { return zeroScrollButton(); }
+            @Override protected JButton createIncreaseButton(int orientation) { return zeroScrollButton(); }
+            @Override protected void paintThumb(Graphics graphics, JComponent component, Rectangle bounds) {
+                if (bounds.isEmpty() || !component.isEnabled()) return;
+                Graphics2D g = (Graphics2D) graphics.create();
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(new Color(palette.accent.getRed(), palette.accent.getGreen(), palette.accent.getBlue(), 205));
+                g.fillRoundRect(bounds.x + 2, bounds.y + 2, Math.max(3, bounds.width - 4), Math.max(8, bounds.height - 4), 8, 8);
+                g.dispose();
+            }
+            @Override protected void paintTrack(Graphics graphics, JComponent component, Rectangle bounds) {
+                Graphics2D g = (Graphics2D) graphics.create();
+                g.setColor(palette.primary); g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height); g.dispose();
+            }
+        });
+        bar.setPreferredSize(new Dimension(10, 10));
+    }
+    private JButton zeroScrollButton() {
+        JButton button = new JButton(); button.setPreferredSize(new Dimension(0, 0)); button.setMinimumSize(new Dimension(0, 0)); button.setMaximumSize(new Dimension(0, 0)); button.setFocusable(false); return button;
+    }
+    private boolean loadImageSource() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Choose an image source");
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Image files", "png", "jpg", "jpeg", "bmp", "gif"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return false;
+        try { pendingImage = ImageIO.read(chooser.getSelectedFile()); }
+        catch (Exception ignored) { pendingImage = null; }
+        if (pendingImage == null) { showNotice("Image source", "That file could not be opened as an image."); return false; }
+        pendingImageName = chooser.getSelectedFile().getName();
+        int extension = pendingImageName.lastIndexOf('.'); if (extension > 0) pendingImageName = pendingImageName.substring(0, extension);
+        return true;
+    }
+    private void applyAccent() { String name = String.valueOf(accentMode.getSelectedItem()); Color color; if ("Red".equals(name)) color = new Color(235, 82, 86); else if ("Orange".equals(name)) color = new Color(241, 145, 64); else if ("Yellow".equals(name)) color = new Color(239, 205, 76); else if ("Green".equals(name)) color = new Color(83, 190, 123); else if ("Purple".equals(name)) color = new Color(161, 111, 224); else if ("White".equals(name)) color = Color.WHITE; else if ("Black".equals(name)) color = new Color(20, 22, 25); else if ("Custom…".equals(name)) color = JColorChooser.showDialog(this, "Choose accent colour", palette.accent); else color = new Color(103, 153, 255); if (color != null) palette.accent = color; refreshTheme(); }
+    private void refreshTheme() { applyUiDefaults(); SwingUtilities.updateComponentTreeUI(this); opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
+    private void applyUiDefaults() {
+        UIManager.put("Panel.background", palette.background); UIManager.put("Label.foreground", palette.text);
+        UIManager.put("Button.background", palette.panelRaised); UIManager.put("Button.foreground", palette.text); UIManager.put("Button.select", palette.accent.darker());
+        UIManager.put("List.background", palette.panel); UIManager.put("List.foreground", palette.text); UIManager.put("List.selectionBackground", palette.accent); UIManager.put("List.selectionForeground", palette.selectionText());
+        UIManager.put("Viewport.background", palette.panel); UIManager.put("ScrollPane.background", palette.panel);
+        UIManager.put("ComboBox.background", palette.controlSurface()); UIManager.put("ComboBox.foreground", palette.text); UIManager.put("ComboBox.selectionBackground", palette.accent); UIManager.put("ComboBox.selectionForeground", palette.selectionText());
+        UIManager.put("CheckBox.foreground", palette.text); UIManager.put("CheckBox.select", palette.accent); UIManager.put("RadioButton.foreground", palette.text); UIManager.put("RadioButton.select", palette.accent); UIManager.put("Slider.background", palette.background);
+        UIManager.put("TextField.background", palette.controlSurface()); UIManager.put("TextField.foreground", palette.text); UIManager.put("TextField.caretForeground", palette.text); UIManager.put("TextField.selectionBackground", palette.accent); UIManager.put("TextField.selectionForeground", palette.selectionText());
+        UIManager.put("OptionPane.background", palette.background); UIManager.put("OptionPane.messageForeground", palette.text);
+    }
+
+    private JMenuBar buildMenuBar() {
+        JMenuBar bar = new JMenuBar();
+        JMenu file = new JMenu("File"); JMenuItem snapshot = new JMenuItem("Temporary snapshot"); snapshot.addActionListener(event -> backend.requestSnapshot()); JMenuItem exit = new JMenuItem("Exit"); exit.addActionListener(event -> { shutdownServices(); dispose(); }); file.add(snapshot); file.addSeparator(); file.add(exit);
+        JMenu view = new JMenu("View"); JMenuItem multitaskItem = new JMenuItem("Enter multitask mode"); multitaskItem.addActionListener(event -> setMultitask(true)); JMenuItem fit = new JMenuItem("Fit source to canvas"); fit.addActionListener(event -> resetTransform()); view.add(multitaskItem); view.add(fit);
+        JMenu help = new JMenu("Help"); JMenuItem privacy = new JMenuItem("Privacy status"); privacy.addActionListener(event -> showNotice("Privacy", "Capture stays local. Recording is disabled. Temporary snapshots expire after seven days.")); help.add(privacy);
+        bar.setBackground(palette.panel); bar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, palette.line));
+        for (JMenu menu : new JMenu[]{file, view, help}) { menu.setForeground(palette.text); }
+        bar.add(file); bar.add(view); bar.add(help); return bar;
+    }
+
+    private void moveSelected(int direction) {
+        int from = sourceList.getSelectedIndex(); if (from < 0) return;
+        int to = Math.max(0, Math.min(activeView.sources.size() - 1, from + direction)); if (from == to) return;
+        Source controlled = activeView.sources.get(Math.min(activeView.controlSource, activeView.sources.size() - 1));
+        Source source = activeView.sources.remove(from); activeView.sources.add(to, source); activeView.controlSource = activeView.sources.indexOf(controlled); sourceList.setSelectedIndex(to); preview.repaint();
+    }
+
+    private void duplicateSelected() {
+        Source original = sourceList.getSelectedValue(); if (original == null) return;
+        Source copy = new Source(uniqueSourceName(original.name + " copy"), original.kind); copy.customName = original.customName; copy.captureCursor = original.captureCursor; copy.visible = original.visible; copy.quickSwapInput = original.quickSwapInput; copy.inputTarget = original.inputTarget; copy.opacity = original.opacity; copy.scale = original.scale; copy.scaleX = original.scaleX; copy.scaleY = original.scaleY; copy.freeTransform = original.freeTransform; copy.x = Math.min(100, original.x + 5); copy.y = Math.min(100, original.y + 5); copy.liveFrame = original.kind == Source.Kind.IMAGE ? original.liveFrame : null;
+        if (copy.quickSwapInput) copy.controlColor = nextControlColor(original);
+        copy.nativeWindowHandle = original.nativeWindowHandle;
+        copy.captureMethod = original.captureMethod;
+        if (original.captureFramePath != null) {
+            copy.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID()
+                + (original.kind == Source.Kind.GAME ? ".game" : ".bmp")).toString();
+            if (original.kind == Source.Kind.GAME) backend.startGameCapture(copy.captureFramePath);
+            else backend.registerWindowCapture(copy.name, original.inputTarget, copy.captureFramePath,
+                copy.nativeWindowHandle, copy.captureMethod, copy.captureCursor);
+        }
+        int index = sourceList.getSelectedIndex(); activeView.sources.add(index, copy); sourceList.setSelectedIndex(index); preview.repaint();
+    }
+
+    private void removeSelected() {
+        int index = sourceList.getSelectedIndex(); if (index < 0) return;
+        Source source = activeView.sources.get(index);
+        if (source.captureFramePath != null) {
+            if (source.kind == Source.Kind.GAME) backend.stopGameCapture(source.captureFramePath);
+            else backend.removeWindowCapture(source.captureFramePath);
+        }
+        activeView.sources.remove(index); activeView.controlSource = Math.min(activeView.controlSource, activeView.sources.size() - 1); sourceList.setSelectedIndex(Math.min(index, activeView.sources.size() - 1)); preview.repaint();
+    }
+
+    private void toggleSelectedVisibility() {
+        Source source = sourceList.getSelectedValue(); if (source == null) return;
+        source.visible = !source.visible; sourceList.repaint(); preview.repaint();
+    }
+
+    private void renameSelected() {
+        Source source = sourceList.getSelectedValue(); if (source == null) return;
+        String name = promptText("Rename source", "Source name:", source.name); if (name != null && !name.trim().isEmpty()) { source.name = uniqueSourceName(name.trim(), source); source.customName = true; sourceList.repaint(); syncSelection(); preview.repaint(); }
+    }
+
+    private void configureSelectedSource() {
+        Source source = sourceList.getSelectedValue();
+        if (source == null) return;
+        if (source.kind == Source.Kind.WINDOW) {
+            showWindowSourceSettings(source);
+        } else if (source.kind == Source.Kind.DISPLAY) {
+            int device = chooseDisplayDevice();
+            if (device >= 0) { source.displayDeviceIndex = device; source.liveFrame = null; preview.repaint(); }
+        } else if (source.kind == Source.Kind.IMAGE) {
+            if (loadImageSource()) { source.liveFrame = pendingImage; pendingImage = null; preview.repaint(); }
+        } else if (source.kind == Source.Kind.VIDEO) {
+            showNotice("Video source", "Video playback is not implemented yet. This source cannot be configured until playback support is added.");
+        } else if (source.kind == Source.Kind.GAME) {
+            showNotice("DirectX 11 test capture", "This source launches the controlled DirectX 11 test renderer. " +
+                "To change its name use F2; to restart capture, remove and add it again. Third-party game hooks are not implemented.");
+        }
+    }
+
+    private void showWindowSourceSettings(Source source) {
+        JDialog dialog = dialog("Configure window capture");
+        JPanel body = dialogBody();
+        JPanel fields = transparent(new GridLayout(0, 1, 0, 8));
+        JTextField name = new JTextField(source.name);
+        name.setForeground(palette.text); name.setBackground(palette.controlSurface()); name.setCaretColor(palette.text);
+        boolean[] manualName = {source.customName}, settingSuggestedName = {false};
+        name.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            private void changed() { if (!settingSuggestedName[0]) manualName[0] = true; }
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent event) { changed(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent event) { changed(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent event) { changed(); }
+        });
+        JComboBox<PythonBridge.WindowTarget> targets = new JComboBox<>(); styleCombo(targets);
+        targets.addActionListener(event -> {
+            PythonBridge.WindowTarget selected = (PythonBridge.WindowTarget) targets.getSelectedItem();
+            if (selected != null && !manualName[0]) {
+                settingSuggestedName[0] = true; name.setText(automaticWindowSourceName(selected)); settingSuggestedName[0] = false;
+            }
+        });
+        JLabel scanStatus = muted("Scanning open windows…");
+        JButton scan = toolButton("Scan again", "Refresh detected application windows");
+        Runnable refresh = () -> {
+            scanStatus.setText("Scanning open windows…"); scan.setEnabled(false);
+            backend.requestWindowList(found -> SwingUtilities.invokeLater(() -> {
+                DefaultComboBoxModel<PythonBridge.WindowTarget> model = new DefaultComboBoxModel<>();
+                for (PythonBridge.WindowTarget item : found) model.addElement(item);
+                targets.setModel(model);
+                for (int i = 0; i < model.getSize(); i++) if (model.getElementAt(i).hwnd == source.nativeWindowHandle) targets.setSelectedIndex(i);
+                scan.setEnabled(true); scanStatus.setText(found.size() + " windows found");
+            }));
+        };
+        scan.addActionListener(event -> refresh.run());
+        fields.add(propertyLabel("Source name")); fields.add(name);
+        fields.add(propertyLabel("Capture target")); JPanel targetRow = transparent(new BorderLayout(6, 0)); targetRow.add(targets); targetRow.add(scan, BorderLayout.EAST); fields.add(targetRow); fields.add(scanStatus);
+        JCheckBox captureCursor = new JCheckBox("Capture cursor in this source", source.captureCursor); captureCursor.setOpaque(false); captureCursor.setForeground(palette.text); captureCursor.setIcon(new AccentCheckIcon(palette)); fields.add(captureCursor);
+        fields.add(propertyLabel("Capture method"));
+        JComboBox<String> method = new JComboBox<>(new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
+        styleCombo(method); method.setSelectedIndex("WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
+        JLabel methodHint = muted("Automatic tries a window image first, then the visible desktop."); fields.add(methodHint);
+        body.add(fields, BorderLayout.CENTER);
+        JButton cancel = toolButton("Cancel", "Discard changes"); cancel.addActionListener(event -> dialog.dispose());
+        JButton save = primaryButton("Apply changes"); save.addActionListener(event -> {
+            PythonBridge.WindowTarget target = (PythonBridge.WindowTarget) targets.getSelectedItem();
+            if (target == null || name.getText().trim().isEmpty()) { showNotice("Window capture", "Choose a detected window and enter a source name."); return; }
+            source.name = uniqueSourceName(name.getText().trim(), source); source.customName = manualName[0]; source.inputTarget = target.title; source.nativeWindowHandle = target.hwnd;
+            source.captureMethod = method.getSelectedIndex() == 1 ? "WINDOW" : method.getSelectedIndex() == 2 ? "SCREEN" : "AUTO";
+            source.captureCursor = captureCursor.isSelected();
+            source.liveFrame = null; source.lastCaptureModified = 0;
+            backend.registerWindowCapture(source.name, source.inputTarget, source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
+            sourceList.repaint(); syncSelection(); preview.repaint(); dialog.dispose();
+        });
+        JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); actions.add(cancel); actions.add(save); body.add(actions, BorderLayout.SOUTH);
+        dialog.setContentPane(body); dialog.setSize(520, 360); dialog.setLocationRelativeTo(this); refresh.run(); dialog.setVisible(true);
+    }
+
+    private void resetTransform() {
+        Source source = sourceList.getSelectedValue(); if (source == null) return;
+        if (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW) { source.scale = 100; source.scaleX = source.scaleY = -1; source.freeTransform = false; source.x = 0; source.y = 0; }
+        else { source.scale = 38; source.x = 56; source.y = 52; }
+        syncSelection(); preview.repaint();
+    }
+
+    private void setMultitask(boolean enabled) {
+        if (enabled && !backend.isReady()) {
+            showNotice("Multitask input unavailable", "The Python input service has not started. Check the status bar and restart MultiMin from this build.");
+            return;
+        }
+        if (multitask == enabled) return; multitask = enabled; GraphicsDevice device = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+        preview.setLocked(enabled);
+        if (enabled) {
+            refreshDisplayCaptureActivity();
+            if (activeView.sources.size() > 0) {
+                activeView.controlSource = Math.max(0, Math.min(activeView.controlSource, activeView.sources.size() - 1));
+                multitaskInputLabel.setText("Input target: " + activeView.sources.get(activeView.controlSource).name);
+            }
+            preview.setLocked(true);
+            multitaskWindow = new JWindow();
+            multitaskWindow.setFocusableWindowState(false);
+            multitaskWindow.setAlwaysOnTop(true);
+            multitaskWindow.setBackground(new Color(0, 0, 0, 0));
+            multitaskWindow.setContentPane(preview);
+            Rectangle screenBounds = device.getDefaultConfiguration().getBounds();
+            multitaskWindow.setBounds(screenBounds);
+            multitaskWindow.setVisible(true);
+            multitaskControls = new JWindow();
+            multitaskControls.setFocusableWindowState(false);
+            multitaskControls.setAlwaysOnTop(true);
+            multitaskControls.setBackground(new Color(0, 0, 0, 0));
+            JPanel controlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+            controlsPanel.setOpaque(false);
+            multitaskTargetLabel = new JLabel();
+            multitaskTargetLabel.setFont(multitaskTargetLabel.getFont().deriveFont(Font.BOLD, 13f));
+            multitaskTargetLabel.setOpaque(false);
+            JButton exitOverlay = new JButton("×"); multitaskExitButton = exitOverlay;
+            exitOverlay.setFont(exitOverlay.getFont().deriveFont(Font.BOLD, 22f)); exitOverlay.setForeground(Color.WHITE);
+            exitOverlay.setBackground(new Color(28, 32, 40, 220)); exitOverlay.setOpaque(true); exitOverlay.setBorder(BorderFactory.createLineBorder(palette.line));
+            exitOverlay.setPreferredSize(new Dimension(38, 34)); exitOverlay.setMargin(new Insets(0, 0, 0, 0));
+            exitOverlay.setToolTipText("Exit multitask mode"); exitOverlay.addActionListener(event -> setMultitask(false));
+            multitaskControls.setContentPane(controlsPanel);
+            Rectangle screen = screenBounds;
+            int buttonX = revealCornerIndex == 0 ? screen.x + (screen.width - 38) / 2
+                : (revealCornerIndex == 1 || revealCornerIndex == 3) ? screen.x + 10 : screen.x + screen.width - 48;
+            int buttonY = revealCornerIndex <= 2 ? screen.y + 10 : screen.y + screen.height - 48;
+            int controlsWidth = 300;
+            boolean labelBeforeButton = buttonX + controlsWidth > screen.x + screen.width;
+            if (labelBeforeButton) { controlsPanel.add(multitaskTargetLabel); controlsPanel.add(exitOverlay); }
+            else { controlsPanel.add(exitOverlay); controlsPanel.add(multitaskTargetLabel); }
+            int controlsX = labelBeforeButton ? buttonX - (controlsWidth - 38) : buttonX;
+            controlsX = Math.max(screen.x, Math.min(controlsX, screen.x + screen.width - controlsWidth));
+            buttonY = Math.max(screen.y, Math.min(buttonY, screen.y + screen.height - 38));
+            multitaskControls.setBounds(controlsX, buttonY, controlsWidth, 38);
+            inputNoticeTimer = new javax.swing.Timer(1000, event -> multitaskTargetLabel.setVisible(false));
+            inputNoticeTimer.setRepeats(false);
+            multitaskControls.setVisible(true); updateControlIndicator();
+            setVisible(false);
+            backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
+            SwingUtilities.invokeLater(() -> { refreshNativeLayerLayout(); setControlTarget(activeView.controlSource); });
+        } else {
+            backend.setMultitaskOverlay(false, false, stopKeyBinding);
+            if (inputNoticeTimer != null) { inputNoticeTimer.stop(); inputNoticeTimer = null; }
+            multitaskTargetLabel = null;
+            if (multitaskControls != null) { multitaskControls.setVisible(false); multitaskControls.dispose(); multitaskControls = null; }
+            multitaskExitButton = null;
+            if (multitaskWindow != null) { multitaskWindow.setVisible(false); multitaskWindow.remove(preview); multitaskWindow.dispose(); multitaskWindow = null; }
+            preview.setLocked(false);
+            canvasPanel.add(preview, BorderLayout.CENTER);
+            setVisible(true);
+            refreshDisplayCaptureActivity();
+        }
+        root.revalidate(); root.repaint(); preview.revalidate(); preview.repaint();
+    }
+
+    private void refreshDisplayCaptureActivity() {
+        for (int device = 0; device < displayCaptures.size(); device++) {
+            boolean needed = false;
+            for (int i = 0; i < activeView.sources.size(); i++) {
+                Source source = activeView.sources.get(i);
+                if (source.visible && source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == device) { needed = true; break; }
+            }
+            displayCaptures.get(device).setEnabled(needed);
+        }
+    }
+
+    private void refreshWindowFrames() {
+        refreshDisplayCaptureActivity();
+        if (!windowFrameScanQueued.compareAndSet(false, true)) return;
+        List<Source> sources = new ArrayList<>();
+        for (int i = 0; i < activeView.sources.size(); i++) {
+            Source source = activeView.sources.get(i);
+            if (source.visible && source.captureFramePath != null) sources.add(source);
+        }
+        if (sources.isEmpty()) { windowFrameScanQueued.set(false); return; }
+        windowFrameWorker.execute(() -> {
+            Map<Source, WindowFrameReader.Frame> frames = new HashMap<>();
+            Map<Source, long[]> versions = new HashMap<>();
+            for (Source source : sources) {
+                try {
+                    WindowFrameReader.Frame frame = null;
+                    try { frame = windowFrameReader.readMemory(source.captureFramePath, source.lastMemorySequence,
+                        backend.frameStreamPort(), source.standbyFrame); }
+                    catch (java.io.IOException ignored) { }
+                    if (frame != null) {
+                        frames.put(source, frame); continue;
+                    }
+                    Path path = Path.of(source.captureFramePath);
+                    if (!Files.isRegularFile(path)) continue;
+                    long modified = Files.getLastModifiedTime(path).toMillis(), size = Files.size(path);
+                    if (modified == source.lastCaptureModified && size == source.lastCaptureSize) continue;
+                    frame = windowFrameReader.readDisk(source.captureFramePath, source.lastCaptureModified, source.lastCaptureSize);
+                    if (frame != null) { frames.put(source, frame); versions.put(source, new long[]{modified, size}); }
+                } catch (Exception ignored) { }
+            }
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    for (Map.Entry<Source, WindowFrameReader.Frame> entry : frames.entrySet()) {
+                        Source source = entry.getKey();
+                        WindowFrameReader.Frame frame = entry.getValue();
+                        long[] version = versions.get(source);
+                        if (frame.backend.contains("memory")) {
+                            if (source.lastMemorySequence > 0 && frame.sequence > source.lastMemorySequence + 1)
+                                source.skippedFrames += frame.sequence - source.lastMemorySequence - 1;
+                            source.lastMemorySequence = frame.sequence;
+                        } else if (version != null) {
+                            source.lastCaptureModified = version[0]; source.lastCaptureSize = version[1];
+                        }
+                        BufferedImage previous = source.liveFrame;
+                        source.liveFrame = frame.image;
+                        source.standbyFrame = frame.backend.contains("memory") ? previous : null;
+                        source.activeCaptureBackend = source.kind == Source.Kind.GAME
+                            ? "DirectX 11 test capture · CPU transfer" : frame.backend;
+                        source.captureLatencyMillis = frame.latencyMillis; source.capturedFrames++;
+                    }
+                    if (!frames.isEmpty()) preview.repaint();
+                } finally { windowFrameScanQueued.set(false); }
+            });
+        });
+    }
+
+    private void shutdownServices() {
+        if (performanceTimer != null) performanceTimer.stop();
+        if (windowFrameTimer != null) windowFrameTimer.stop();
+        windowFrameWorker.shutdownNow();
+        windowFrameReader.close();
+        for (DisplayCapture capture : displayCaptures) capture.close();
+        backend.close();
+        try (var files = Files.list(windowFramesDirectory)) { files.forEach(path -> { try { Files.deleteIfExists(path); } catch (Exception ignored) { } }); }
+        catch (Exception ignored) { }
+        try { Files.deleteIfExists(windowFramesDirectory); } catch (Exception ignored) { }
+    }
+
+    private void bindShortcuts() {
+        KeyStroke toggle = KeyStroke.getKeyStroke("ctrl shift SPACE");
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggle, "toggle-multitask");
+        root.getActionMap().put("toggle-multitask", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { setMultitask(!multitask); } });
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("ESCAPE"), "exit-multitask");
+        root.getActionMap().put("exit-multitask", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { if (multitask) setMultitask(false); } });
+    }
+
+    public void setBackendStatus(String status) { SwingUtilities.invokeLater(() -> backendStatus.setText(status)); }
+
+    private void showNotice(String title, String message) {
+        JDialog dialog = dialog(title); JPanel body = dialogBody();
+        JTextArea text = new JTextArea(message); text.setWrapStyleWord(true); text.setLineWrap(true); text.setEditable(false); text.setFocusable(false); text.setOpaque(false); text.setForeground(palette.text); text.setFont(UIManager.getFont("Label.font"));
+        body.add(text, BorderLayout.CENTER); JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 0, 0)); JButton ok = toolButton("OK", "Close"); ok.addActionListener(event -> dialog.dispose()); actions.add(ok); body.add(actions, BorderLayout.SOUTH);
+        dialog.setContentPane(body); dialog.setSize(390, 165); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+    }
+
+    private String promptText(String title, String prompt, String initial) {
+        JDialog dialog = dialog(title); JPanel body = dialogBody(); body.add(new JLabel(prompt), BorderLayout.NORTH);
+        JTextField field = new JTextField(initial, 24); field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setSelectionColor(palette.accent); field.setSelectedTextColor(palette.selectionText()); field.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line), new EmptyBorder(6, 8, 6, 8))); body.add(field, BorderLayout.CENTER);
+        final String[] result = {null}; JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); JButton cancel = toolButton("Cancel", "Cancel"); cancel.addActionListener(event -> dialog.dispose()); JButton save = primaryButton("Save"); save.addActionListener(event -> { result[0] = field.getText(); dialog.dispose(); }); actions.add(cancel); actions.add(save); body.add(actions, BorderLayout.SOUTH);
+        dialog.setContentPane(body); dialog.setSize(390, 175); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
+    }
+
+    private Source.Kind chooseSourceKind() {
+        JDialog dialog = dialog("Add source"); JPanel body = dialogBody(); body.add(new JLabel("Choose a source type"), BorderLayout.NORTH); JPanel choices = transparent(new GridLayout(0, 1, 0, 6)); final Source.Kind[] result = {null};
+        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || kind == Source.Kind.GAME) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
+        body.add(choices, BorderLayout.CENTER); JButton cancel = toolButton("Cancel", "Close"); cancel.addActionListener(event -> dialog.dispose()); JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT)); actions.add(cancel); body.add(actions, BorderLayout.SOUTH);
+        dialog.setContentPane(body); dialog.setSize(360, 320); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
+    }
+
+    private JDialog dialog(String title) { JDialog dialog = new JDialog(this, title, true); dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE); dialog.getContentPane().setBackground(palette.background); return dialog; }
+    private JPanel dialogBody() { JPanel body = new GlassPanel(palette); body.setLayout(new BorderLayout(12, 16)); body.setBorder(new EmptyBorder(18, 18, 14, 18)); return body; }
+    private JButton quietButton(String text) { Icon icon = null; String label = text; if ("＋".equals(text)) { icon = new VectorIcon(VectorIcon.Type.ADD, 12, palette.text); label = ""; } else if ("Snapshot".equals(text)) icon = new VectorIcon(VectorIcon.Type.CAMERA, 13, palette.text); return new ModernButton(label, icon, palette, false); }
+    private JButton primaryButton(String text) { Icon icon = text.contains("Add") ? new VectorIcon(VectorIcon.Type.ADD, 12, palette::selectionText) : text.contains("multitasking") ? new VectorIcon(VectorIcon.Type.PLAY, 12, palette::selectionText) : null; return new ModernButton(text.replace("＋ ", ""), icon, palette, true); }
+    private JButton toolButton(String text, String tooltip) { VectorIcon.Type type = null; if ("＋".equals(text)) type = VectorIcon.Type.ADD; else if ("−".equals(text)) type = VectorIcon.Type.REMOVE; else if ("⧉".equals(text)) type = VectorIcon.Type.COPY; else if ("◉".equals(text)) type = VectorIcon.Type.EYE; else if ("↑".equals(text)) type = VectorIcon.Type.UP; else if ("↓".equals(text)) type = VectorIcon.Type.DOWN; Icon icon = type == null ? null : new VectorIcon(type, 13, palette.text); ModernButton button = new ModernButton(type == null ? text : "", icon, palette, false); button.setToolTipText(tooltip); return button; }
+    private JLabel sectionTitle(String text) { JLabel label = muted(text); label.setBorder(new EmptyBorder(8, 0, 7, 0)); return label; }
+    private JLabel propertyLabel(String text) { JLabel label = new JLabel(text); label.setForeground(palette.text); return label; }
+    private JPanel percentageEditor(JSlider slider) {
+        CardLayout cards = new CardLayout();
+        JPanel holder = transparent(cards);
+        holder.setPreferredSize(new Dimension(62, 25));
+        JButton value = new JButton(slider.getValue() + "%");
+        value.setToolTipText("Click to enter a value from " + slider.getMinimum() + "% to " + slider.getMaximum() + "%");
+        value.setForeground(palette.muted); value.setBorder(new EmptyBorder(0, 2, 0, 0));
+        value.setOpaque(false); value.setContentAreaFilled(false); value.setFocusPainted(false);
+        value.setHorizontalAlignment(SwingConstants.RIGHT);
+        JTextField editor = new JTextField();
+        editor.setHorizontalAlignment(SwingConstants.RIGHT);
+        editor.setBackground(palette.controlSurface()); editor.setForeground(palette.text);
+        editor.setCaretColor(palette.text); editor.setBorder(BorderFactory.createLineBorder(palette.accent));
+        percentageFields.add(editor);
+        holder.add(value, "value"); holder.add(editor, "editor");
+        boolean[] cancelled = {false};
+        Runnable commit = () -> {
+            if (cancelled[0]) { cancelled[0] = false; return; }
+            try {
+                int parsed = Integer.parseInt(editor.getText().trim().replace("%", ""));
+                if (parsed >= slider.getMinimum() && parsed <= slider.getMaximum()) slider.setValue(parsed);
+                else Toolkit.getDefaultToolkit().beep();
+            } catch (NumberFormatException error) { Toolkit.getDefaultToolkit().beep(); }
+            value.setText(slider.getValue() + "%"); cards.show(holder, "value");
+        };
+        value.addActionListener(event -> { editor.setText(Integer.toString(slider.getValue())); cards.show(holder, "editor"); SwingUtilities.invokeLater(() -> { editor.requestFocusInWindow(); editor.selectAll(); }); });
+        editor.addActionListener(event -> commit.run());
+        editor.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancel-edit");
+        editor.getActionMap().put("cancel-edit", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { cancelled[0] = true; cards.show(holder, "value"); value.requestFocusInWindow(); } });
+        editor.addFocusListener(new java.awt.event.FocusAdapter() { @Override public void focusLost(java.awt.event.FocusEvent event) { if (editor.isVisible()) commit.run(); else cancelled[0] = false; } });
+        slider.addChangeListener(event -> { value.setText(slider.getValue() + "%"); if (!editor.isVisible()) editor.setText(Integer.toString(slider.getValue())); });
+        return holder;
+    }
+    private void styleCombo(JComboBox<?> combo) {
+        combo.setOpaque(true); combo.setBackground(palette.controlSurface()); combo.setForeground(palette.text); combo.setBorder(BorderFactory.createLineBorder(palette.line));
+        combo.setRenderer((list, value, index, selected, focus) -> {
+            JLabel item = new JLabel(value == null ? "" : value.toString()); item.setOpaque(true); item.setBorder(new EmptyBorder(4, 7, 4, 7));
+            item.setBackground(selected ? palette.accent : palette.controlSurface());
+            item.setForeground(selected ? palette.selectionText() : palette.text); return item;
+        });
+    }
+    private JLabel muted(String text) { JLabel label = new JLabel(text); label.setForeground(palette.muted); label.setFont(label.getFont().deriveFont(10f)); return label; }
+    private JPanel transparent(LayoutManager layout) { JPanel panel = new JPanel(layout); panel.setOpaque(false); return panel; }
+}
+

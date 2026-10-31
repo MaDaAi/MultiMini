@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 800 800">
+  <defs>
+    <style>
+      .cls-1{fill:#1a1a1a}
+      .cls-2{fill:#005150}
+      .cls-3{fill:#00928e}
+      .cls-4{fill:#a11740}
+      .cls-5{fill:#1a1a1a;stroke:#1a1a1a;stroke-miterlimit:10}
+    </style>
+  </defs>
+  <title>logo</title>
+  <g id="Layer_2" data-name="Layer 2">
+    <path d="M0 0 L800 0 L800 800 L0 800 Z" class="cls-1"/>
+    <path d="M543.307 532.323" class="cls-2"/>
+  </g>
+  <g id="Layer_1" data-name="Layer 1">
+    <path d="M126.057 658.396 L126.057 72.247 L275.502 72.247 L409.886 425.443 L508.358 72.247 L653.169 72.247 L653.169 515.404 L653.169 658.396 Z" class="cls-3"/>
+    <path d="M587.813 653.092 L518.194 580.199 L518.194 843.505 L653.169 843.505 L653.169 580.199 Z" class="cls-1"/>
+    <path d="M587.813 666.25 L518.194 622.194 L518.194 781.335 L653.169 781.335 L653.169 622.194 Z" class="cls-4"/>
+    <path d="M559.397 854.867 L559.397 690.487 L587.813 720.239 L616.228 690.487 L616.228 854.867 Z" class="cls-1"/>
+    <path d="M518.194 381.267 L421.878 655.647 L278.081 374.231 L278.081 932.372 L518.194 941.752 Z" class="cls-1"/>
+  </g>
+  <g id="Layer_3" data-name="Layer 3">
+    <path d="M587.813 653.092 L653.169 580.199 L653.169 622.194 L589.054 666.25 L518.194 622.194 L518.194 580.199 Z" class="cls-5"/>
+  </g>
+</svg>

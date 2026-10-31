@@ -1,0 +1,4 @@
+Pillow>=11.0,<13
+mss>=10.0,<11
+platformdirs>=4.0,<5
+windows-capture==2.0.1; sys_platform == "win32"
