@@ -20,7 +20,7 @@ public final class ModernButton extends JButton {
         ButtonModel model = getModel(); Color base = primary ? palette.accent : palette.panelRaised;
         if (model.isPressed()) base = base.darker(); else if (model.isSelected()) base = palette.accent; else if (model.isRollover()) base = base.darker();
         g.setColor(base); g.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8); g.setColor(isFocusOwner() ? palette.accent : palette.line); g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8); g.dispose();
-        setForeground(primary || model.isSelected() ? Palette.contrastText(base) : palette.text); super.paintComponent(graphics);
+        setForeground(primary || model.isSelected() ? palette.selectionText() : palette.text); super.paintComponent(graphics);
     }
 
     private static int brightness(Color c) { return (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000; }

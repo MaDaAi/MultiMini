@@ -77,13 +77,13 @@ public final class MainWindow extends JFrame {
     private int performanceFps = Math.max(0, Math.min(240,
         !preferences.getBoolean("captureFpsChoiceV2", false) && preferences.getInt("captureFps", 0) == 60
             ? 0 : preferences.getInt("captureFps", 0)));
-    private int revealCornerIndex = 0;
-    private String stopKeyBinding = "END";
+    private int revealCornerIndex = Math.clamp(preferences.getInt("revealCorner", 0), 0, 4);
+    private String stopKeyBinding = preferences.getString("stopKey", "END");
     private String pendingWindowSourceName;
     private boolean pendingWindowNameManual;
     private String pendingImageName;
-    private String swapKeyBinding = "RIGHT_CTRL";
-    private String layerSwapKeyBinding = "PAUSE";
+    private String swapKeyBinding = preferences.getString("swapInputKey", "RIGHT_CTRL");
+    private String layerSwapKeyBinding = preferences.getString("swapLayersKey", "PAUSE");
     private boolean recordingLayerSwapKey;
     private JButton layerSwapKeyButton;
     private boolean recordingSwapKey;
@@ -105,7 +105,7 @@ public final class MainWindow extends JFrame {
     private String pendingImagePath = "";
 
     public MainWindow(PythonBridge backend) {
-        super("MultiMini");
+        super(Boolean.getBoolean("multimin.dev.gameCapture") ? "MultiMini Experimental" : "MultiMini");
         this.backend = backend;
         try { appLogo = new LogoIcon(36); setIconImages(List.of(new LogoIcon(16).toImage(), new LogoIcon(32).toImage(), new LogoIcon(64).toImage(), new LogoIcon(256).toImage())); }
         catch (Exception ignored) { appLogo = null; }
@@ -802,8 +802,8 @@ public final class MainWindow extends JFrame {
 
     private void showGameCaptureInfo() {
         showNotice("Game capture unavailable",
-            "The native DirectX 11 test backend is not built or could not start. Install the MSVC x64 C++ tools and Windows SDK, " +
-            "then run scripts/build-native.ps1 in x64 Developer PowerShell. This controlled test backend does not hook third-party games.");
+            "The controlled DX11 test renderer could not initialize. Use Game window — WGC compatibility to select a running game window. " +
+            "The experimental installer includes the test renderer; updating MultiMini or your graphics driver may resolve initialization problems.");
     }
 
     private void showMultitaskSettings() {
@@ -811,12 +811,23 @@ public final class MainWindow extends JFrame {
         stagedSwapKeyBinding = swapKeyBinding; stagedLayerSwapKeyBinding = layerSwapKeyBinding; stagedStopKeyBinding = stopKeyBinding;
         JDialog dialog = dialog("Settings");
         JPanel body = dialogBody();
-        JPanel fields = transparent(new GridLayout(0, 1, 0, 5));
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.setFont(tabs.getFont().deriveFont(Font.BOLD, 13f)); tabs.setForeground(palette.text); tabs.setBackground(palette.panel);
+        tabs.setUI(new javax.swing.plaf.basic.BasicTabbedPaneUI() {
+            @Override protected void installDefaults(){super.installDefaults();tabInsets=new Insets(12,18,12,18);contentBorderInsets=new Insets(14,0,0,0);}
+            @Override protected void paintTabBackground(Graphics g,int placement,int index,int x,int y,int w,int h,boolean selected){g.setColor(selected?palette.controlSurface():palette.panel);g.fillRoundRect(x,y,w,h,8,8);if(selected){g.setColor(palette.accent);g.fillRect(x+12,y+h-3,w-24,3);}}
+            @Override protected void paintTabBorder(Graphics g,int p,int i,int x,int y,int w,int h,boolean s){}
+            @Override protected void paintContentBorder(Graphics g,int p,int s){}
+            @Override protected void paintFocusIndicator(Graphics g,int p,Rectangle[] r,int i,Rectangle icon,Rectangle text,boolean s){}
+        });
+        JPanel fields = settingsPage(); tabs.addTab("General", fields);
         fields.setBorder(new EmptyBorder(2, 0, 8, 0));
         fields.add(settingsGroup("Application"));
-        JButton updates = quietButton(Boolean.getBoolean("multimin.publicUpdates") ? "Check for updates" : "Update information");
-        updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } shutdownServices(); dispose(); System.exit(0); }));
-        fields.add(settingsRow("Updates", Boolean.getBoolean("multimin.publicUpdates") ? "GitHub releases · preserves your workspace" : "Manual updates · private repository", updates));
+        JLabel version = new JLabel(System.getProperty("jpackage.app-version", "Development")); version.setForeground(palette.text); version.setFont(version.getFont().deriveFont(Font.BOLD));
+        fields.add(settingsRow("Build", Boolean.getBoolean("multimin.dev.gameCapture") ? "Experimental capture features enabled" : "Safety build", version));
+        JButton updates = quietButton("Updates…");
+        updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } }, () -> { shutdownServices(); dispose(); System.exit(0); }));
+        fields.add(settingsRow("Updates", "Private downloads · preserves your workspace", updates));
         JButton legal = quietButton("Read agreement & privacy"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
         fields.add(settingsRow("Publisher: Mansoor Alakoozai", "Canada · support through GitHub Issues", legal));
         fields.add(settingsGroup("Appearance"));
@@ -824,6 +835,7 @@ public final class MainWindow extends JFrame {
         styleCombo(stagedAccent); stagedAccent.setFocusable(false); stagedAccent.setSelectedItem(accentMode.getSelectedItem());
         stagedAccent.setPreferredSize(new Dimension(150, 30));
         fields.add(settingsRow("Accent colour", "Highlights and active controls", stagedAccent));
+        fields = settingsPage(); tabs.addTab("Controls", fields);
         fields.add(settingsGroup("Keyboard shortcuts"));
         swapKeyButton = toolButton(prettyKeyBinding(swapKeyBinding), "Click to record a key or key combination");
         styleKeyButton(swapKeyButton);
@@ -838,6 +850,7 @@ public final class MainWindow extends JFrame {
         stopKeyButton.addActionListener(event -> { recordingStopKey = true; stopKeyButton.setText("Press keys…  ·  Esc to cancel"); }); fields.add(settingsRow("Stop multitasking", "Exit the overlay", stopKeyButton));
         fields.add(settingsGroup("Multitasking"));
         JComboBox<String> corner = new JComboBox<>(new String[]{"Top-center", "Top-left", "Top-right", "Bottom-left", "Bottom-right"}); styleCombo(corner); corner.setSelectedIndex(revealCornerIndex); corner.setPreferredSize(new Dimension(150, 30)); fields.add(settingsRow("Exit button corner", "Position of the overlay close button", corner));
+        fields = settingsPage(); tabs.addTab("Performance", fields);
         fields.add(settingsGroup("Performance & diagnostics"));
         JComboBox<String> fps = new JComboBox<>(new String[]{"Auto (monitor refresh)", "30 FPS", "60 FPS", "90 FPS", "120 FPS", "144 FPS", "165 FPS", "240 FPS"});
         fps.setSelectedItem(performanceFps == 0 ? "Auto (monitor refresh)" : performanceFps + " FPS"); styleCombo(fps); fps.setPreferredSize(new Dimension(170, 30)); fields.add(settingsRow("Capture target", "Maximum preview and capture rate", fps));
@@ -845,16 +858,18 @@ public final class MainWindow extends JFrame {
         showStats.setOpaque(false); showStats.setForeground(palette.text); showStats.setIcon(new AccentCheckIcon(palette)); fields.add(settingsRow("Diagnostics", "Show status and performance details", showStats));
         boolean originalDebugVisibility = debugPanel.isVisible();
         boolean[] settingsApplied = {false};
-        JLabel statsNote = new JLabel("Higher targets may increase CPU/GPU load; actual rates depend on capture support and hardware.");
+        JLabel statsNote = new JLabel("<html>Auto follows your monitor's refresh rate. Actual delivery depends on the<br>capture method, source updates and hardware. Native DWM presentation<br>avoids pixel transfer for supported window-only layouts.</html>");
         statsNote.setForeground(palette.muted); statsNote.setFont(statsNote.getFont().deriveFont(10f)); fields.add(statsNote);
-        body.add(fields, BorderLayout.CENTER);
+        body.add(tabs, BorderLayout.CENTER);
         JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); JButton cancel = toolButton("Cancel", "Close without applying"); cancel.addActionListener(event -> dialog.dispose());
         Runnable applySettings = () -> {
             recordingSwapKey = false; recordingStopKey = false; recordingLayerSwapKey = false;
             swapKeyBinding = stagedSwapKeyBinding; layerSwapKeyBinding = stagedLayerSwapKeyBinding; stopKeyBinding = stagedStopKeyBinding;
+            preferences.putString("swapInputKey", swapKeyBinding); preferences.putString("swapLayersKey", layerSwapKeyBinding); preferences.putString("stopKey", stopKeyBinding);
             updateHotkeyHints();
             accentMode.setSelectedItem(stagedAccent.getSelectedItem()); applyAccent();
             revealCornerIndex = corner.getSelectedIndex();
+            preferences.putInt("revealCorner", revealCornerIndex);
             String selectedFps = String.valueOf(fps.getSelectedItem());
             applyPerformanceFps(selectedFps.startsWith("Auto") ? 0 : Integer.parseInt(selectedFps.split(" ")[0]));
             preferences.putBoolean("showDebug", showStats.isSelected());
@@ -868,7 +883,19 @@ public final class MainWindow extends JFrame {
         JButton ok = primaryButton("OK"); ok.addActionListener(event -> { applySettings.run(); dialog.dispose(); });
         actions.add(cancel); actions.add(apply); actions.add(ok); body.add(actions, BorderLayout.SOUTH);
         dialog.addWindowListener(new WindowAdapter() { @Override public void windowClosed(WindowEvent event) { recordingSwapKey = false; recordingStopKey = false; recordingLayerSwapKey = false; settingsHotkeyRecording = false; if (!settingsApplied[0]) setDebugVisible(originalDebugVisibility); } });
-        dialog.setContentPane(body); dialog.setSize(480, 600); dialog.setMinimumSize(new Dimension(460, 560)); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+        dialog.setContentPane(body); dialog.setSize(720, 520); dialog.setMinimumSize(new Dimension(640, 470)); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+    }
+    private JPanel settingsPage() {
+        JPanel page=new JPanel(new java.awt.GridBagLayout()) {
+            private int row;
+            { java.awt.GridBagConstraints space=new java.awt.GridBagConstraints();space.gridx=0;space.gridy=1000;space.weighty=1;super.addImpl(Box.createVerticalGlue(),space,-1); }
+            @Override protected void addImpl(Component component,Object constraints,int index) {
+                java.awt.GridBagConstraints cell=new java.awt.GridBagConstraints();cell.gridx=0;cell.gridy=row++;cell.weightx=1;cell.fill=java.awt.GridBagConstraints.HORIZONTAL;cell.anchor=java.awt.GridBagConstraints.NORTH;cell.insets=new Insets(4,2,4,2);
+                super.addImpl(component,cell,index);
+            }
+        };
+        page.setOpaque(false);
+        return page;
     }
     private void setDebugVisible(boolean visible) {
         debugPanel.setVisible(visible); performanceStatus.setVisible(visible);
@@ -880,7 +907,8 @@ public final class MainWindow extends JFrame {
         heading.setFont(heading.getFont().deriveFont(Font.BOLD, 13f));
         heading.setBorder(new EmptyBorder(9, 0, 4, 0));
         group.add(heading, BorderLayout.NORTH);
-        JSeparator rule = new JSeparator(); rule.setForeground(palette.line); group.add(rule, BorderLayout.SOUTH);
+        JComponent rule = new JComponent() { @Override protected void paintComponent(Graphics g){g.setColor(palette.line);g.drawLine(0,0,getWidth(),0);} };
+        rule.setPreferredSize(new Dimension(1,1)); group.add(rule, BorderLayout.SOUTH);
         return group;
     }
     private JPanel settingsRow(String title, String description, JComponent control) {
@@ -1391,6 +1419,14 @@ public final class MainWindow extends JFrame {
         return holder;
     }
     private void styleCombo(JComboBox<?> combo) {
+        combo.setUI(new javax.swing.plaf.basic.BasicComboBoxUI() {
+            @Override protected JButton createArrowButton(){
+                JButton arrow=new JButton(){@Override protected void paintComponent(Graphics graphics){Graphics2D g=(Graphics2D)graphics.create();g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);g.setColor(palette.muted);g.setStroke(new BasicStroke(1.5f));int x=getWidth()/2,y=getHeight()/2;g.drawLine(x-4,y-2,x,y+2);g.drawLine(x,y+2,x+4,y-2);g.dispose();}};
+                arrow.setBorder(BorderFactory.createEmptyBorder());arrow.setContentAreaFilled(false);arrow.setFocusable(false);arrow.setPreferredSize(new Dimension(28,28));return arrow;
+            }
+            @Override public void paintCurrentValueBackground(Graphics g,Rectangle bounds,boolean focus){g.setColor(palette.controlSurface());g.fillRect(bounds.x,bounds.y,bounds.width,bounds.height);}
+            @Override protected javax.swing.plaf.basic.ComboPopup createPopup(){return new javax.swing.plaf.basic.BasicComboPopup(comboBox){@Override protected JScrollPane createScroller(){JScrollPane pane=super.createScroller();styleScrollBar(pane.getVerticalScrollBar());pane.setBorder(BorderFactory.createEmptyBorder());return pane;}};}
+        });
         combo.setOpaque(true); combo.setBackground(palette.controlSurface()); combo.setForeground(palette.text); combo.setBorder(BorderFactory.createLineBorder(palette.line));
         combo.setRenderer((list, value, index, selected, focus) -> {
             JLabel item = new JLabel(value == null ? "" : value.toString()); item.setOpaque(true); item.setBorder(new EmptyBorder(4, 7, 4, 7));

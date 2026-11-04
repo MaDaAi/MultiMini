@@ -281,7 +281,13 @@ public final class PythonBridge implements AutoCloseable {
     }
 
     @Override public void close() {
+        Process running = process;
+        List<ProcessHandle> children = running == null ? List.of() : running.descendants().toList();
         send("{\"command\":\"shutdown\"}");
-        if (process != null) process.destroy();
+        if (running != null) {
+            try { if (!running.waitFor(1500, java.util.concurrent.TimeUnit.MILLISECONDS)) running.destroy(); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); running.destroy(); }
+            for (ProcessHandle child : children) if (child.isAlive()) child.destroy();
+        }
     }
 }

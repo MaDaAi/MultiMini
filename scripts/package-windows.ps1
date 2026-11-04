@@ -1,4 +1,4 @@
-param([string]$Version = '0.02', [string]$PythonExecutable = '', [string]$InnoCompiler = '')
+param([string]$Version = '0.03', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
@@ -12,7 +12,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Unsupported build Python.' }
 if (-not $InnoCompiler) { $InnoCompiler = Join-Path $ProjectRoot 'build\tools\inno\ISCC.exe' }
 if (-not (Test-Path -LiteralPath $InnoCompiler)) { throw 'Pass -InnoCompiler with the path to ISCC.exe.' }
 if (-not (Test-Path 'native\build\multimin-frame-bridge.dll')) { throw 'Build the native frame bridge with scripts/build-native.ps1 first.' }
-& "$PSScriptRoot\build.ps1"
+$BuildOptions = @{}
+if (-not $SafetyBuild) { $BuildOptions.DevelopmentGameCapture = $true }
+& "$PSScriptRoot\build.ps1" @BuildOptions
 if ($LASTEXITCODE -ne 0) { throw 'App compilation failed.' }
 $PackageRoot = Join-Path $ProjectRoot 'build\internal\package'
 if (Test-Path -LiteralPath $PackageRoot) {
@@ -24,7 +26,12 @@ $InputRoot = Join-Path $PackageRoot 'input'
 $PythonRoot = Join-Path $InputRoot 'python'
 $RuntimeRoot = Join-Path $PythonRoot 'runtime'
 New-Item -ItemType Directory -Force $RuntimeRoot | Out-Null
-Copy-Item 'build\MultiMini.jar' $InputRoot
+$SelectedJar = if ($SafetyBuild) { 'build\MultiMini.jar' } else { 'build\MultiMini-Experimental.jar' }
+Copy-Item -LiteralPath $SelectedJar -Destination (Join-Path $InputRoot 'MultiMini.jar')
+if (-not $SafetyBuild -and (Test-Path 'native\build\multimin-dx11-test.exe')) {
+    New-Item -ItemType Directory -Force (Join-Path $InputRoot 'native\build') | Out-Null
+    Copy-Item 'native\build\multimin-dx11-test.exe' (Join-Path $InputRoot 'native\build')
+}
 Copy-Item README.md,LICENSE,TERMS.md,PRIVACY.md $InputRoot
 Copy-Item -LiteralPath 'python\multimin_backend' -Destination $PythonRoot -Recurse
 $Archive = Join-Path $ProjectRoot 'build\tools\python-3.14.0-embed-amd64.zip'
@@ -39,13 +46,17 @@ Set-Content -LiteralPath (Join-Path $RuntimeRoot 'python314._pth') -Encoding asc
 if ($LASTEXITCODE -ne 0) { throw 'Bundling Python dependencies failed.' }
 & "$RuntimeRoot\python.exe" -I -c "import windows_capture,cv2,numpy,PIL,mss,platformdirs,multimin_backend; print('Bundled Python imports OK')"
 if ($LASTEXITCODE -ne 0) { throw 'Embedded runtime dependency check failed.' }
+$Channel = if ($SafetyBuild) { 'Safety' } else { 'Experimental' }
+& "$RuntimeRoot\python.exe" (Join-Path $PSScriptRoot 'generate-branding.py') --channel $Channel
+if ($LASTEXITCODE -ne 0) { throw 'Branding asset generation failed.' }
 $ImageRoot = Join-Path $PackageRoot 'image'
-& "$Jdk\bin\jpackage.exe" --type app-image --name MultiMini --app-version $Version --vendor 'MultiMini contributors' --input $InputRoot --main-jar MultiMini.jar --dest $ImageRoot --add-modules java.desktop,java.management,jdk.management,jdk.unsupported --java-options '--enable-native-access=ALL-UNNAMED' --java-options '-Xmx2g' --java-options '-XX:G1HeapRegionSize=32m'
+& "$Jdk\bin\jpackage.exe" --type app-image --name MultiMini --app-version $Version --vendor 'Mansoor Alakoozai' --icon (Join-Path $ProjectRoot 'installer\assets\multimini.ico') --input $InputRoot --main-jar MultiMini.jar --dest $ImageRoot --add-modules java.desktop,java.management,jdk.management,jdk.unsupported --java-options '--enable-native-access=ALL-UNNAMED' --java-options '-Xmx2g' --java-options '-XX:G1HeapRegionSize=32m'
 if ($LASTEXITCODE -ne 0) { throw 'Native launcher packaging failed.' }
 $AppImage = Join-Path $ImageRoot 'MultiMini'
-& $InnoCompiler "/DAppImageDir=$AppImage" "/DReleaseVersion=$Version" installer\MultiMin.iss
+$OutputRoot = Join-Path $ProjectRoot $(if ($SafetyBuild) { 'dist\safety' } else { 'dist' })
+& $InnoCompiler "/O$OutputRoot" "/DAppImageDir=$AppImage" "/DReleaseVersion=$Version" "/DAppChannel=$Channel" installer\MultiMin.iss
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
-$Installer = Join-Path $ProjectRoot "dist\MultiMini-Setup-$Version-Windows-x64.exe"
+$Installer = Join-Path $OutputRoot "MultiMini-Setup-$Version-Windows-x64.exe"
 $Hash = (Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$Installer.sha256" -Encoding ascii -Value "$Hash  $([IO.Path]::GetFileName($Installer))"
 Write-Output $Installer

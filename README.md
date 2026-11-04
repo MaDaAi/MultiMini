@@ -2,7 +2,7 @@
 
 MultiMini is a desktop multitasking utility for arranging display and application-window sources as layers, then viewing them together in a configurable overlay. It is built with Java/Swing and a Python helper for Windows capture and input routing.
 
-## Beta 0.02 features
+## Beta 0.03 Experimental features
 
 - **Display Capture:** captures the desktop into a source layer.
 - **Window Capture:** lists visible windows and captures the selected window. Windows Graphics Capture (WGC) uses in-memory BGRA frame transfer; a BMP fallback remains available.
@@ -10,14 +10,14 @@ MultiMini is a desktop multitasking utility for arranging display and applicatio
 - **Low-overhead window presentation:** eligible single-monitor window-only multitask layouts use Windows DWM thumbnails; unsupported or mixed layouts fall back to the regular preview pipeline.
 - **Images:** local image files can be added as sources.
 - **Temporary snapshots:** stored locally; snapshots older than seven days are removed when cleanup runs.
-- **Game Capture:** not included in the release source menu. Experimental DX11 development code is retained under `native/` and is not needed to build or run the release.
+- **Experimental Game Capture:** the published installer includes the WGC game-window chooser and controlled DX11 test renderer. WGC compatibility is subject to application capture restrictions; this is not universal graphics API hooking. The normal JAR remains a safety build.
 - **Platform support:** Windows is the supported platform. Linux capture and input support are not implemented.
 
 MultiMini does not record video or stream. Capture is performed locally. WGC and input forwarding depend on Windows permissions and the target application's behavior.
 
 ## Install on Windows
 
-Download `MultiMini-Setup-0.02-Windows-x64.exe` from [the Beta 0.02 release](https://github.com/MaDaAi/MultiMini/releases/tag/v0.02-beta) and run it. This repository is private: you must sign in to a GitHub account with access to download releases or open support issues. The installer bundles Java, Python, and the capture libraries. Users do not need to install those separately. Launch MultiMini from the Start menu or desktop shortcut. New views begin with no sources; use Add to choose your captures.
+Download `MultiMini-Setup-0.03-Windows-x64.exe` from [the Beta 0.03 Experimental release](https://github.com/MaDaAi/MultiMini/releases/tag/v0.03-beta) and run it. This repository is private: you must sign in to a GitHub account with access to download releases or open support issues. The installer bundles Java, Python, and the capture libraries. Users do not need to install those separately. Launch MultiMini from the Start menu or desktop shortcut. New views begin with no sources; use Add to choose your captures.
 
 The installer is currently unsigned. A clean Windows machine test is still recommended before public distribution. See [installer build instructions](docs/WINDOWS_INSTALLER.md).
 
@@ -29,7 +29,7 @@ Views, source order, transforms, opacity and control selections are saved automa
 
 ## Updating
 
-This private beta uses **manual updates**; in-app update checks are disabled. Download a newer installer through your authorized GitHub account, close MultiMini, and run the installer over the same installation. Workspaces and settings remain in your user-data folder. Back up that folder before an upgrade.
+This repository stays private. Sign in to an authorized GitHub account on the other computer and download the newer EXE plus its matching `.exe.sha256` file into the same folder. In MultiMini 0.03+, choose **Settings → General → Updates → Install downloaded update**, select the newer EXE, and confirm restart. The app verifies the checksum and applies the update in place while keeping your workspace. No GitHub token is embedded or stored in MultiMini. Public background update checks remain disabled. On version 0.02, run the 0.03 installer over the existing installation once to gain this update UI. Back up `%APPDATA%\MultiMin` before an upgrade.
 
 ## Build from source
 
@@ -54,3 +54,5 @@ Publisher: **Mansoor Alakoozai, Canada**. Collaborators with repository access c
 
 Workspace saving, optional GitHub updates and the agreement flow are described in [release review notes](docs/WORKSPACES_UPDATES_LEGAL.md).
 
+
+Release packaging defaults to the experimental build: `scripts/package-windows.ps1`. The normal JAR remains available as a safety fallback. Optional `-SafetyBuild` installer output goes under `dist/safety` so it cannot overwrite the experimental installer. The supplied PNG is used for app, EXE, shortcut and installer icons.

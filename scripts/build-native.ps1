@@ -13,7 +13,7 @@ if (-not $env:VSCMD_ARG_TGT_ARCH -and $env:Platform -and $env:Platform -ne 'X64'
 $Native = Join-Path $ProjectRoot 'native'
 $Output = Join-Path $Native 'build'
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
-& $Compiler.Source /nologo /std:c++20 /EHsc /O2 /W4 /MD /DNOMINMAX /DUNICODE /D_UNICODE `
+& $Compiler.Source /nologo /std:c++20 /EHsc /O2 /W4 /MT /DNOMINMAX /DUNICODE /D_UNICODE `
     "/Fo$Output\" "/Fe$Output\multimin-dx11-test.exe" `
     (Join-Path $Native 'GameCapture.cpp') (Join-Path $Native 'Dx11TestApp.cpp') `
     /link /SUBSYSTEM:WINDOWS d3d11.lib dxgi.lib ws2_32.lib user32.lib shell32.lib

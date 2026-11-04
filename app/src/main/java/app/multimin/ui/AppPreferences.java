@@ -39,6 +39,12 @@ final class AppPreferences {
     synchronized boolean getBoolean(String key, boolean fallback) {
         return Boolean.parseBoolean(values.getProperty(key, Boolean.toString(fallback)));
     }
+    synchronized String getString(String key, String fallback) {
+        return values.getProperty(key, fallback);
+    }
+    synchronized void putString(String key, String value) {
+        values.setProperty(key, value); save();
+    }
 
     synchronized void putInt(String key, int value) {
         values.setProperty(key, Integer.toString(value)); save();
