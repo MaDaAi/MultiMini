@@ -6,7 +6,7 @@ import java.awt.Color;
 public final class Source {
     public enum Kind {
         DISPLAY("Display capture", "▣"), WINDOW("Window capture", "▤"),
-        IMAGE("Image", "◇"), VIDEO("Video", "▶"), GAME("Game capture (DX11 test)", "◉");
+        IMAGE("Image", "◇"), VIDEO("Video", "▶"), GAME("Game capture (experimental)", "◉");
 
         public final String label;
         public final String glyph;
@@ -33,6 +33,10 @@ public final class Source {
     public int displayDeviceIndex;
     /** Capture strategy for window sources: AUTO, WINDOW, or SCREEN. */
     public String captureMethod = "AUTO";
+    public boolean nativeGameTest = false;
+    public transient boolean nativeDisplayFrames;
+    public transient boolean nativeDisplayAttempted;
+    public boolean usesWindowTarget() { return kind == Kind.WINDOW || (kind == Kind.GAME && !nativeGameTest); }
     public boolean captureCursor = false;
     public String imagePath = "";
     public transient volatile BufferedImage liveFrame;
@@ -46,6 +50,13 @@ public final class Source {
     public transient long captureLatencyMillis;
     public transient long capturedFrames;
     public transient long skippedFrames;
+    public transient long producedNanos;
+    public transient long presentedFrames;
+    public transient long lastPresentedCapture;
+    public transient double publicationToPaintMillis;
+    public boolean nativePresentationEnabled = true;
+    public transient boolean nativeCompositionActive;
+    public transient int nativeSourceWidth, nativeSourceHeight;
 
     public Source(String name, Kind kind) {
         this.name = name;

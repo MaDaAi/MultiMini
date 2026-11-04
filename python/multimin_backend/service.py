@@ -21,7 +21,7 @@ class CaptureService:
     def __init__(self, emit) -> None:
         self.emit = emit
         self.snapshots = SnapshotStore()
-        self.frame_stream = FrameStream()
+        self.frame_stream = FrameStream(lambda: self.emit({"event": "frame_ready"}))
         self.game_ingest = GameIngest(self._publish_game_frame)
         self.game_processes: dict[str, subprocess.Popen] = {}
         self.game_active: set[str] = set()
@@ -34,6 +34,7 @@ class CaptureService:
         self.capture_fps = 60
         self.native_input = WindowsInputBridge(emit) if sys.platform == "win32" else None
         self.window_captures: dict[str, tuple[str, str, int, str, bool]] = {}
+        self.active_window_paths: set[str] | None = None
         self.graphics_captures: dict[str, tuple[object, object]] = {}
         self.graphics_starting: set[str] = set()
         self.frame_locks: dict[str, threading.Lock] = {}
@@ -51,7 +52,9 @@ class CaptureService:
             with self.capture_lock:
                 captures = list(self.window_captures.items())
             for path, (title, _source_id, hwnd, method, capture_cursor) in captures:
-                if not self.native_input.user32.IsWindow(hwnd):
+                if self.active_window_paths is not None and path not in self.active_window_paths:
+                    continue
+                if method != "MONITOR" and not self.native_input.user32.IsWindow(hwnd):
                     with self.capture_lock:
                         self.graphics_retry_after[path] = time.monotonic() + 1.0
                     continue
@@ -59,9 +62,13 @@ class CaptureService:
                     graphics_active = path in self.graphics_captures or path in self.graphics_starting
                 if graphics_active:
                     continue
-                if method == "AUTO" and time.monotonic() >= self.graphics_retry_after.get(path, 0.0):
-                    if self._start_graphics_capture(path, hwnd, capture_cursor):
+                if method in ("AUTO", "WGC", "MONITOR") and time.monotonic() >= self.graphics_retry_after.get(path, 0.0):
+                    started = (self._start_graphics_capture(path, hwnd, capture_cursor, monitor_index=hwnd)
+                               if method == "MONITOR" else self._start_graphics_capture(path, hwnd, capture_cursor))
+                    if started:
                         continue
+                if method in ("WGC", "MONITOR"):
+                    continue
                 try:
                     captured = self.native_input.capture_window(title, path, hwnd, method)
                     if not captured and method == "AUTO":
@@ -77,12 +84,12 @@ class CaptureService:
         if session:
             session[1].stop()
 
-    def _start_graphics_capture(self, path: str, hwnd: int, capture_cursor: bool = False) -> bool:
+    def _start_graphics_capture(self, path: str, hwnd: int, capture_cursor: bool = False, monitor_index: int | None = None) -> bool:
         with self.capture_lock:
             if path in self.graphics_captures or path in self.graphics_starting:
                 return True
             self.graphics_starting.add(path)
-        if not hwnd or not self.native_input.user32.IsWindow(hwnd):
+        if monitor_index is None and (not hwnd or not self.native_input.user32.IsWindow(hwnd)):
             self.graphics_retry_after[path] = time.monotonic() + 5.0
             with self.capture_lock:
                 self.graphics_starting.discard(path)
@@ -98,12 +105,20 @@ class CaptureService:
         try:
             with self.capture_lock:
                 frame_lock = self.frame_locks.setdefault(path, threading.Lock())
-            capture = WindowsCapture(window_hwnd=hwnd, cursor_capture=capture_cursor,
-                                     draw_border=False, minimum_update_interval=max(1, round(1000 / self.capture_fps)))
+            capture = WindowsCapture(window_hwnd=hwnd if monitor_index is None else None,
+                                     monitor_index=monitor_index, cursor_capture=capture_cursor,
+                                     draw_border=False, minimum_update_interval=(1 if self.capture_fps >= 90 else max(1, (1000 // self.capture_fps) // 2)))
+            next_publish_ns = 0
 
             @capture.event
             def on_frame_arrived(frame, _control):
+                nonlocal next_publish_ns
                 try:
+                    now = time.monotonic_ns()
+                    period = 1_000_000_000 // self.capture_fps
+                    if now + period // 10 < next_publish_ns:
+                        return
+                    next_publish_ns = max(now, next_publish_ns + period)
                     pixels = frame.frame_buffer.tobytes()
                     self.frame_stream.publish(path, frame.width, frame.height, pixels)
                 except Exception as error:
@@ -115,6 +130,8 @@ class CaptureService:
                 with self.capture_lock:
                     self.graphics_captures.pop(path, None)
                 self.graphics_retry_after[path] = time.monotonic() + 1.0
+                if monitor_index is not None:
+                    self.emit({"event": "capture_status", "path": path, "status": "stopped"})
 
             control = capture.start_free_threaded()
             try:
@@ -135,6 +152,28 @@ class CaptureService:
 
     def dispatch(self, message: dict) -> dict:
         command = message.get("command")
+        if command == "register_display_capture":
+            if not self.native_input:
+                return {"event": "error", "message": "Native monitor capture requires Windows"}
+            path = str(message.get("path", ""))
+            monitor = int(message.get("monitor", 1))
+            if not path or monitor < 1:
+                return {"event": "error", "message": "Invalid display target"}
+            with self.capture_lock:
+                self.window_captures[path] = ("Display", "display", monitor, "MONITOR", False)
+            if self.active_window_paths is None or path in self.active_window_paths:
+                self._start_graphics_capture(path, monitor, monitor_index=monitor)
+            return {"event": "display_capture_registered"}
+        if command == "active_window_captures":
+            previous = self.active_window_paths
+            self.active_window_paths = set(map(str, message.get("paths", [])))
+            for path in self.active_window_paths - (previous or set()):
+                self.graphics_retry_after.pop(path, None)
+            with self.capture_lock:
+                inactive = [path for path in self.graphics_captures if path not in self.active_window_paths]
+            for path in inactive:
+                self._stop_graphics_capture(path)
+            return {"event": "capture_activity_changed"}
         if command == "ping":
             return {"event": "pong"}
         if command == "capabilities":
@@ -149,14 +188,18 @@ class CaptureService:
             self.opacity = max(0, min(100, int(message.get("value", 100))))
             return {"event": "opacity_changed", "value": self.opacity}
         if command == "set_capture_fps":
-            self.capture_fps = max(1, min(240, int(message.get("value", 60))))
+            self.capture_fps = max(1, min(1000, int(message.get("value", 60))))
             with self.capture_lock:
                 active = list(self.graphics_captures)
-                auto_captures = [(path, title, hwnd, cursor) for path, (title, _sid, hwnd, method, cursor) in self.window_captures.items() if method == "AUTO"]
+                auto_captures = [(path, title, hwnd, cursor) for path, (title, _sid, hwnd, method, cursor) in self.window_captures.items() if method in ("AUTO", "WGC", "MONITOR")]
             for path in active:
                 self._stop_graphics_capture(path)
             for path, _title, hwnd, cursor in auto_captures:
-                self._start_graphics_capture(path, hwnd, cursor)
+                if self.active_window_paths is None or path in self.active_window_paths:
+                    if self.window_captures[path][3] == "MONITOR":
+                        self._start_graphics_capture(path, hwnd, cursor, monitor_index=hwnd)
+                    else:
+                        self._start_graphics_capture(path, hwnd, cursor)
             return {"event": "capture_fps_changed", "value": self.capture_fps}
         if command == "set_input_target":
             self.input_target = str(message.get("name", "desktop"))
@@ -200,14 +243,14 @@ class CaptureService:
             if path and title:
                 self._stop_graphics_capture(path)
                 method = str(message.get("method", "AUTO")).upper()
-                if method not in {"AUTO", "WINDOW", "SCREEN"}:
+                if method not in {"AUTO", "WINDOW", "SCREEN", "WGC"}:
                     method = "AUTO"
                 with self.capture_lock:
                     capture_cursor = bool(message.get("capture_cursor", False))
                     hwnd = int(message.get("hwnd", 0))
                     self.window_captures[path] = (title, str(message.get("id", "")), hwnd, method, capture_cursor)
                     self.frame_locks.setdefault(path, threading.Lock())
-                if method == "AUTO":
+                if method in ("AUTO", "WGC") and (self.active_window_paths is None or path in self.active_window_paths):
                     self._start_graphics_capture(path, hwnd, capture_cursor)
             return {"event": "window_capture_registered", "path": path}
         if command == "remove_window_capture":
@@ -321,7 +364,7 @@ def run() -> None:
     service = CaptureService(emit)
     service.snapshots.cleanup()
     emit({"event": "ready", "protocol": 1, "local_only": True, "frame_port": service.frame_stream.port,
-          "game_available": service.game_available})
+          "game_available": service.game_available, "frame_notifications": True})
     for line in sys.stdin:
         try:
             message = json.loads(line)

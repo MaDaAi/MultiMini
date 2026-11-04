@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <d3d11.h>
 #include <dxgi.h>

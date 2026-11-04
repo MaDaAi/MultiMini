@@ -6,6 +6,20 @@ from multimin_backend.frame_stream import FrameStream
 
 
 class FrameStreamTests(unittest.TestCase):
+    def test_ready_notification_observes_the_published_frame_without_holding_frame_lock(self):
+        seen=[]
+        stream=None
+        def published():
+            with stream._lock:
+                seen.append(stream._frames['source'][2])
+        stream=FrameStream(published)
+        try:
+            stream.publish('source',1,1,b'\x00\x01\x02\xff')
+            stream.publish('source',1,1,b'\x03\x04\x05\xff')
+            self.assertEqual(seen,[1,2])
+        finally:
+            stream.close()
+
     def test_latest_frame_replaces_old_frame_and_skips_unchanged_pixels(self):
         stream = FrameStream()
         try:

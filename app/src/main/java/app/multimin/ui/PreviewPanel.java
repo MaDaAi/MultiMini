@@ -12,6 +12,7 @@ import java.util.function.IntConsumer;
 public final class PreviewPanel extends JPanel {
     private final Palette palette;
     private final FrameTextureCache frameTextures = new FrameTextureCache();
+    private final WindowSurfaceCompositor windowSurfaces = new WindowSurfaceCompositor();
     private View view;
     private IntConsumer selectionListener = ignored -> {};
     private Runnable changeListener = () -> {};
@@ -24,6 +25,10 @@ public final class PreviewPanel extends JPanel {
     private Point dragStart;
     private int startX, startY, startScale;
     private boolean locked;
+    private boolean nativePresentationAllowed = true;
+    public void setNativePresentationAllowed(boolean allowed) {
+        if(nativePresentationAllowed!=allowed){nativePresentationAllowed=allowed;windowSurfaces.reset();repaint();}
+    }
     private volatile double measuredFps;
     private volatile double lastPaintMillis;
     private long paintSampleStarted = System.nanoTime();
@@ -45,7 +50,7 @@ public final class PreviewPanel extends JPanel {
         addMouseMotionListener(interaction);
     }
 
-    public void setView(View view) { this.view = view; frameTextures.retain(view.sources); selectedIndex = Math.min(1, view.sources.size() - 1); repaint(); }
+    public void setView(View view) { windowSurfaces.reset(); this.view = view; frameTextures.retain(view.sources); selectedIndex = Math.min(1, view.sources.size() - 1); repaint(); }
     public Rectangle sourceBoundsInPanel(int index) {
         if (index < 0 || index >= view.sources.size()) return new Rectangle();
         if (locked) canvas = new Rectangle(0, 0, getWidth(), getHeight());
@@ -79,18 +84,33 @@ public final class PreviewPanel extends JPanel {
     public double getMeasuredFps() { return measuredFps; }
     public double getLastPaintMillis() { return lastPaintMillis; }
     public int getAcceleratedSourceCount() { return frameTextures.countAcceleratedSources(); }
-    @Override public void removeNotify() { frameTextures.close(); super.removeNotify(); }
-    public void setLocked(boolean locked) { this.locked = locked; setOpaque(!locked); dragStart = null; resizing = false; setCursor(Cursor.getDefaultCursor()); repaint(); }
+    @Override public void removeNotify() { windowSurfaces.close(); frameTextures.close(); super.removeNotify(); }
+    public void setLocked(boolean locked) { if(!locked)windowSurfaces.reset(); this.locked = locked; setOpaque(!locked); dragStart = null; resizing = false; setCursor(Cursor.getDefaultCursor()); repaint(); }
+    public void refreshNativePresentation() {
+        if(!locked || !nativePresentationAllowed)return;
+        boolean active=false;for(int i=0;i<view.sources.size();i++)active|=view.sources.get(i).nativeCompositionActive;
+        if(!active)return;
+        canvas=new Rectangle(0,0,getWidth(),getHeight());
+        windowSurfaces.update(this,view,canvas,true,this::sourceBoundsInPanel);
+    }
+    public boolean isSourceRendered(int index) {
+        Source source = view.sources.get(index);
+        return source.visible && !(locked && index == view.sources.size()-1 && source.kind == Source.Kind.DISPLAY
+            && source.displayDeviceIndex == 0 && source.opacity == 100 && source.scale == 100 && source.x == 0 && source.y == 0
+            && (source.scaleX < 0 || source.scaleX == 100) && (source.scaleY < 0 || source.scaleY == 100));
+    }
     public void onSelectionChanged(IntConsumer listener) { selectionListener = listener == null ? ignored -> {} : listener; }
     public void onSourceChanged(Runnable listener) { changeListener = listener == null ? () -> {} : listener; }
 
     private Rectangle boundsFor(Source source) {
-        double aspect = source.liveFrame == null ? 16.0 / 9.0 : (double) source.liveFrame.getWidth() / Math.max(1, source.liveFrame.getHeight());
+        int sourceWidth=source.nativeSourceWidth>0?source.nativeSourceWidth:source.liveFrame==null?0:source.liveFrame.getWidth();
+        int sourceHeight=source.nativeSourceHeight>0?source.nativeSourceHeight:source.liveFrame==null?0:source.liveFrame.getHeight();
+        double aspect = sourceHeight==0 ? 16.0/9.0 : (double)sourceWidth/sourceHeight;
         int fitWidth = canvas.width, fitHeight = canvas.height;
-        if ((source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME) && source.liveFrame != null) {
-            DisplayMode display = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode();
-            fitWidth = Math.max(1, (int) Math.round((double) source.liveFrame.getWidth() * canvas.width / Math.max(1, display.getWidth())));
-            fitHeight = Math.max(1, (int) Math.round((double) source.liveFrame.getHeight() * canvas.height / Math.max(1, display.getHeight())));
+        if ((source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME) && sourceWidth>0 && sourceHeight>0) {
+            DisplayMode display = referenceDisplay();
+            fitWidth = Math.max(1, (int) Math.round((double) sourceWidth * canvas.width / Math.max(1, display.getWidth())));
+            fitHeight = Math.max(1, (int) Math.round((double) sourceHeight * canvas.height / Math.max(1, display.getHeight())));
         } else if ((double) fitWidth / Math.max(1, fitHeight) > aspect) fitWidth = (int) (fitHeight * aspect);
         else fitHeight = (int) (fitWidth / aspect);
         int width = Math.max(20, fitWidth * (source.scaleX < 0 ? source.scale : source.scaleX) / 100);
@@ -98,6 +118,12 @@ public final class PreviewPanel extends JPanel {
         int x = canvas.x + (canvas.width - width) * source.x / 100;
         int y = canvas.y + (canvas.height - height) * source.y / 100;
         return new Rectangle(x, y, width, height);
+    }
+
+    private DisplayMode referenceDisplay() {
+        GraphicsConfiguration configuration = getGraphicsConfiguration();
+        return (configuration == null ? GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+            : configuration.getDevice()).getDisplayMode();
     }
 
     private void beginInteraction(MouseEvent event) {
@@ -215,6 +241,7 @@ public final class PreviewPanel extends JPanel {
 
     @Override protected void paintComponent(Graphics graphics) {
         long paintStarted = System.nanoTime();
+        frameTextures.retain(view.sources);
         super.paintComponent(graphics);
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -222,6 +249,7 @@ public final class PreviewPanel extends JPanel {
         int height = locked ? getHeight() : Math.min(Math.max(150, getHeight() - margin * 2), width * 9 / 16);
         int x = locked ? 0 : (getWidth() - width) / 2, y = locked ? 0 : (getHeight() - height) / 2;
         canvas = new Rectangle(x, y, width, height);
+        windowSurfaces.update(this,view,canvas,locked && nativePresentationAllowed,this::sourceBoundsInPanel);
         if (!locked) { g.setColor(Color.BLACK); g.fillRect(x, y, width, height); }
         else if (!hasVisibleDisplaySource()) {
             g.setColor(Color.BLACK); g.fillRect(0, 0, getWidth(), getHeight());
@@ -231,9 +259,7 @@ public final class PreviewPanel extends JPanel {
         layers.clip(canvas);
         for (int index = view.sources.size() - 1; index >= 0; index--) {
             Source source = view.sources.get(index);
-            if (!source.visible) continue;
-            if (locked && index == view.sources.size() - 1 && source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == 0
-                && source.opacity == 100 && source.scale == 100 && source.x == 0 && source.y == 0) continue;
+            if (!isSourceRendered(index)) continue;
             Rectangle bounds = boundsFor(source);
             paintSource(layers, source, bounds, index);
         }
@@ -248,6 +274,14 @@ public final class PreviewPanel extends JPanel {
         }
         g.dispose();
         lastPaintMillis = (System.nanoTime() - paintStarted) / 1_000_000.0;
+        long presented = System.nanoTime();
+        for (int i=0; i<view.sources.size(); i++) {
+            Source source=view.sources.get(i);
+            if (isSourceRendered(i) && !source.nativeCompositionActive && source.producedNanos>0 && source.lastPresentedCapture!=source.capturedFrames) {
+                source.lastPresentedCapture=source.capturedFrames; source.presentedFrames++;
+                source.publicationToPaintMillis=Math.max(0, (presented-source.producedNanos)/1_000_000.0);
+            }
+        }
         paintsInSample++;
         long now = System.nanoTime();
         long elapsed = now - paintSampleStarted;
@@ -259,6 +293,7 @@ public final class PreviewPanel extends JPanel {
     }
 
     private void paintSource(Graphics2D g, Source source, Rectangle bounds, int index) {
+        if(source.nativeCompositionActive){frameTextures.release(source);return;}
         float alpha = Math.max(0.05f, source.opacity / 100f);
         g.setComposite(AlphaComposite.SrcOver.derive(alpha));
         Color fill;
@@ -272,7 +307,21 @@ public final class PreviewPanel extends JPanel {
         g.setColor(fill);
         g.fill(new RoundRectangle2D.Float(bounds.x, bounds.y, bounds.width, bounds.height, 10, 10));
         if ((source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME || source.kind == Source.Kind.IMAGE) && source.liveFrame != null) {
-            g.drawImage(frameTextures.imageFor(source, getGraphicsConfiguration()), bounds.x, bounds.y, bounds.width, bounds.height, null);
+            Graphics2D pixels = (Graphics2D) g.create();
+            var transform = pixels.getTransform();
+            var physical = transform.createTransformedShape(bounds).getBounds2D();
+            int px = (int)Math.round(physical.getX()), py = (int)Math.round(physical.getY());
+            int pw = Math.max(1, (int)Math.round(physical.getWidth())), ph = Math.max(1, (int)Math.round(physical.getHeight()));
+            boolean nativePixels = pw == source.liveFrame.getWidth() && ph == source.liveFrame.getHeight();
+            if (transform.getShearX() == 0 && transform.getShearY() == 0) {
+                pixels.setTransform(new java.awt.geom.AffineTransform());
+            } else { px = bounds.x; py = bounds.y; pw = bounds.width; ph = bounds.height; }
+            pixels.setRenderingHint(RenderingHints.KEY_INTERPOLATION, nativePixels
+                ? RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
+                : !locked ? RenderingHints.VALUE_INTERPOLATION_BICUBIC : RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            Image scaled = !nativePixels && !locked ? frameTextures.scaledImage(source,pw,ph) : null;
+            pixels.drawImage(scaled != null ? scaled : frameTextures.imageFor(source, getGraphicsConfiguration()), px, py, pw, ph, null);
+            pixels.dispose();
         } else if (source.kind == Source.Kind.DISPLAY) {
             if (source.liveFrame != null) {
                 g.drawImage(source.liveFrame, bounds.x, bounds.y, bounds.width, bounds.height, null);

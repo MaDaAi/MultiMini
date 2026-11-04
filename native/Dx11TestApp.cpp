@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <cstdio>
 
 namespace {
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -23,7 +24,7 @@ std::string utf8(const wchar_t* value) {
 }
 }
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show) {
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     int count = 0;
     LPWSTR* args = CommandLineToArgvW(GetCommandLineW(), &count);
     if (args && count == 2 && std::wcscmp(args[1], L"--probe") == 0) {
@@ -33,6 +34,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show)
         const HRESULT result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
             D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION,
             &probe_device, &probe_level, &probe_context);
+        Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device;
+        Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+        DXGI_ADAPTER_DESC description{};
+        if (SUCCEEDED(result) && SUCCEEDED(probe_device.As(&dxgi_device)) &&
+            SUCCEEDED(dxgi_device->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetDesc(&description))) {
+            std::printf("Adapter: %s\n", utf8(description.Description).c_str());
+        }
+        std::printf("DX11 hardware probe: %s; HRESULT=0x%08lX; feature level=0x%X\n",
+            SUCCEEDED(result) && probe_level >= D3D_FEATURE_LEVEL_11_0 ? "PASS" : "FAIL",
+            static_cast<unsigned long>(result), static_cast<unsigned int>(probe_level));
+        std::fflush(stdout);
         LocalFree(args);
         return SUCCEEDED(result) && probe_level >= D3D_FEATURE_LEVEL_11_0 ? 0 : 1;
     }

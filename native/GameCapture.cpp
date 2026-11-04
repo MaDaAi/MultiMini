@@ -25,6 +25,8 @@ GameCapture::GameCapture(unsigned short port, std::string source, std::string to
     if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return;
     socket_ = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket_ == INVALID_SOCKET) { WSACleanup(); return; }
+    const BOOL no_delay = TRUE;
+    setsockopt(socket_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&no_delay), sizeof(no_delay));
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);

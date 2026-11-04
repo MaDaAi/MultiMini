@@ -55,6 +55,12 @@ public final class MainWindow extends JFrame {
     private final Map<Integer, BufferedImage> pendingDisplayFrames = new ConcurrentHashMap<>();
     private final AtomicBoolean displayFrameUpdateQueued = new AtomicBoolean();
     private final AtomicBoolean windowFrameScanQueued = new AtomicBoolean();
+    private final AtomicBoolean newFramePending = new AtomicBoolean();
+    private volatile List<Source> captureSnapshot = List.of();
+    private volatile boolean captureClosing;
+    private volatile long lastFrameRequestNanos;
+    private List<String> activeCapturePaths = List.of();
+    private boolean captureActivitySent;
     private final WindowFrameReader windowFrameReader = new WindowFrameReader();
     private final Map<Source, Long> lastFrameCounts = new HashMap<>();
     private final java.util.concurrent.ExecutorService windowFrameWorker = Executors.newSingleThreadExecutor(task -> {
@@ -63,7 +69,9 @@ public final class MainWindow extends JFrame {
     private JWindow multitaskWindow;
     private JWindow multitaskControls;
     private final Path windowFramesDirectory;
-    private final javax.swing.Timer windowFrameTimer;
+    private final FramePacer windowFrameTimer;
+    private int lastAppliedCaptureFps;
+    private long lastPerformanceSampleNanos = System.nanoTime();
     private final javax.swing.Timer performanceTimer;
     private final AppPreferences preferences = new AppPreferences();
     private int performanceFps = Math.max(0, Math.min(240,
@@ -104,6 +112,7 @@ public final class MainWindow extends JFrame {
         views.add(new View("Work")); views.add(new View("Media")); views.add(new View("Game"));
         activeView = views.get(0);
         preview = new PreviewPanel(palette, activeView);
+        preview.setNativePresentationAllowed(performanceFps==0 || performanceFps>=GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode().getRefreshRate());
         preview.onSelectionChanged(index -> sourceList.setSelectedIndex(index));
         preview.onSourceChanged(this::syncSelection);
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
@@ -124,8 +133,13 @@ public final class MainWindow extends JFrame {
         backend.setGameStatusHandler((fileName, status) -> SwingUtilities.invokeLater(() -> {
             for (View view : views) for (int index = 0; index < view.sources.size(); index++) {
                 Source source = view.sources.get(index);
-                if (source.kind != Source.Kind.GAME || source.captureFramePath == null ||
+                if ((source.kind != Source.Kind.GAME && source.kind != Source.Kind.DISPLAY) || source.captureFramePath == null ||
                     !Path.of(source.captureFramePath).getFileName().toString().equals(fileName)) continue;
+                if (source.kind == Source.Kind.DISPLAY) {
+                    source.nativeDisplayFrames = false;
+                    refreshDisplayCaptureActivity();
+                    continue;
+                }
                 source.activeCaptureBackend = "DirectX 11 test capture · " + status.replace('_', ' ');
                 if ("waiting_for_game".equals(status) || "unsupported".equals(status) || "stopped".equals(status)) {
                     source.liveFrame = null;
@@ -190,12 +204,16 @@ public final class MainWindow extends JFrame {
                 displayCaptures.add(capture);
             } catch (Exception error) { setBackendStatus("Display capture unavailable — " + error.getMessage()); }
         }
-        windowFrameTimer = new javax.swing.Timer(Math.max(1, (int) Math.ceil(1000.0 / effectiveCaptureFps())), event -> refreshWindowFrames());
-        windowFrameTimer.start();
+        lastAppliedCaptureFps = effectiveCaptureFps();
+        windowFrameTimer = new FramePacer(lastAppliedCaptureFps, this::refreshWindowFrames);
         performanceTimer = new javax.swing.Timer(1000, event -> refreshPerformanceStats());
         performanceStatus.setVisible(preferences.getBoolean("showPerformanceStats", false));
         performanceTimer.start();
         backend.setCaptureFps(effectiveCaptureFps());
+        backend.setFrameReadyHandler(() -> {
+            newFramePending.set(true);
+            requestWindowFrames();
+        });
         addWindowListener(new WindowAdapter() { @Override public void windowClosing(WindowEvent event) { shutdownServices(); } });
     }
 
@@ -377,7 +395,7 @@ public final class MainWindow extends JFrame {
         String target = source.kind == Source.Kind.DISPLAY || source.inputTarget.isBlank() ? "desktop" : source.inputTarget;
         boolean desktopInput = source.kind == Source.Kind.DISPLAY;
         Rectangle mapped = new Rectangle(), excluded = new Rectangle();
-        if (multitask && source.kind == Source.Kind.WINDOW) {
+        if (multitask && source.usesWindowTarget()) {
             try { mapped = preview.sourceBoundsOnScreen(index); } catch (IllegalComponentStateException ignored) { }
         }
         if (multitaskExitButton != null && multitaskExitButton.isShowing()) {
@@ -403,7 +421,7 @@ public final class MainWindow extends JFrame {
         java.util.Set<Long> seen = new java.util.HashSet<>();
         for (int i = 0; i < activeView.sources.size(); i++) {
             Source source = activeView.sources.get(i);
-            if (!source.visible || source.kind != Source.Kind.WINDOW || source.nativeWindowHandle == 0
+            if (!source.visible || !source.usesWindowTarget() || source.nativeWindowHandle == 0
                 || !seen.add(source.nativeWindowHandle)) continue;
             Rectangle bounds;
             try { bounds = preview.sourceBoundsOnScreen(i); }
@@ -469,7 +487,7 @@ public final class MainWindow extends JFrame {
                     if (!pendingDisplayFrames.remove(index, frame)) continue;
                     for (View view : views) for (int i = 0; i < view.sources.size(); i++) {
                         Source source = view.sources.get(i);
-                        if (source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == index) source.liveFrame = frame;
+                        if (source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == index && !source.nativeDisplayFrames) source.liveFrame = frame;
                     }
                 }
                 preview.repaint();
@@ -519,14 +537,25 @@ public final class MainWindow extends JFrame {
     private void addSource() {
         Source.Kind kind = chooseSourceKind();
         if (kind == null) return;
+        boolean nativeTest = false;
+        if (kind == Source.Kind.GAME) {
+            Object mode = JOptionPane.showInputDialog(this,
+                "Choose a backend. WGC captures game windows without graphics hooks.\nProtected or exclusive fullscreen games may be unsupported.",
+                "Experimental game capture", JOptionPane.QUESTION_MESSAGE, null,
+                new String[]{"Game window — WGC compatibility", "Controlled DX11 test renderer"},
+                "Game window — WGC compatibility");
+            if (mode == null) return;
+            nativeTest = mode.toString().startsWith("Controlled");
+        }
+        boolean windowBased = kind == Source.Kind.WINDOW || (kind == Source.Kind.GAME && !nativeTest);
         String target = "";
         PythonBridge.WindowTarget windowTarget = null;
-        if (kind == Source.Kind.WINDOW) {
+        if (windowBased) {
             windowTarget = chooseWindowTarget();
             if (windowTarget == null) return;
             target = windowTarget.title;
         }
-        if (kind == Source.Kind.GAME && !backend.gameAvailable()) { showGameCaptureInfo(); return; }
+        if (nativeTest && !backend.gameAvailable()) { showGameCaptureInfo(); return; }
         int selectedDisplay = 0;
         if (kind == Source.Kind.DISPLAY) {
             selectedDisplay = chooseDisplayDevice();
@@ -536,20 +565,22 @@ public final class MainWindow extends JFrame {
         String defaultName = kind == Source.Kind.DISPLAY ? "Display " + (selectedDisplay + 1) + " - DC"
             : kind == Source.Kind.IMAGE ? (pendingImageName == null ? "Image" : pendingImageName) + " - IMG"
             : kind == Source.Kind.GAME ? "Game - GC" : kind.label;
-        String name = kind == Source.Kind.WINDOW ? pendingWindowSourceName : promptText("Set up " + kind.label.toLowerCase(), "Source name:", defaultName);
-        boolean manuallyNamed = kind == Source.Kind.WINDOW && pendingWindowNameManual;
+        String name = windowBased ? pendingWindowSourceName : promptText("Set up " + kind.label.toLowerCase(), "Source name:", defaultName);
+        if (kind == Source.Kind.GAME && windowBased && name != null && name.endsWith(" - WC")) name = name.substring(0, name.length() - 5) + " - GC";
+        boolean manuallyNamed = windowBased && pendingWindowNameManual;
         pendingWindowSourceName = null;
         pendingWindowNameManual = false;
         if (name == null || name.trim().isEmpty()) return;
         name = uniqueSourceName(name.trim());
         Source source = new Source(name, kind); source.customName = manuallyNamed || kind != Source.Kind.WINDOW; source.inputTarget = target.trim();
-        if (kind == Source.Kind.GAME) {
+        source.nativeGameTest = nativeTest;
+        if (nativeTest) {
             source.scale = 100; source.x = 0; source.y = 0;
             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".game").toString();
             source.activeCaptureBackend = "DirectX 11 test capture · connecting";
             backend.startGameCapture(source.captureFramePath);
         }
-        if (kind == Source.Kind.WINDOW) {
+        if (windowBased) {
             GraphicsDevice screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
             int screenWidth = Math.max(1, screen.getDisplayMode().getWidth());
             int screenHeight = Math.max(1, screen.getDisplayMode().getHeight());
@@ -563,7 +594,8 @@ public final class MainWindow extends JFrame {
         }
         source.displayDeviceIndex = selectedDisplay;
         if (source.quickSwapInput) source.controlColor = nextControlColor(source);
-        if (kind == Source.Kind.WINDOW) {
+        if (windowBased) {
+            if (kind == Source.Kind.GAME) { source.captureMethod = "WGC"; source.quickSwapInput = true; source.controlColor = nextControlColor(source); }
             source.nativeWindowHandle = windowTarget.hwnd;
             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".bmp").toString();
             backend.registerWindowCapture(source.name, target.trim(), source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
@@ -608,6 +640,7 @@ public final class MainWindow extends JFrame {
             case "spotify": display = "Spotify"; break;
             case "discord": display = "Discord"; break;
             case "chatgpt": display = "ChatGPT"; break;
+            case "java": case "javaw": display = titleKey.startsWith("minecraft") ? "Minecraft" : (title.isEmpty() ? "Java application" : title); break;
             default:
                 if (titleKey.contains("chatgpt")) display = "ChatGPT";
                 else if (titleKey.contains("spotify")) display = "Spotify";
@@ -637,18 +670,20 @@ public final class MainWindow extends JFrame {
     }
 
     private int effectiveCaptureFps() {
-        int refresh = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode().getRefreshRate();
+        GraphicsConfiguration configuration = preview == null ? getGraphicsConfiguration() : preview.getGraphicsConfiguration();
+        int refresh = (configuration == null ? GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+            : configuration.getDevice()).getDisplayMode().getRefreshRate();
         if (refresh <= 0) refresh = 60;
-        return Math.max(1, Math.min(240, performanceFps == 0 ? refresh : Math.min(performanceFps, refresh)));
+        return Math.max(1, Math.min(1000, performanceFps == 0 ? refresh : Math.min(performanceFps, refresh)));
     }
 
     private void applyPerformanceFps(int fps) {
         performanceFps = Math.max(0, Math.min(240, fps));
+        preview.setNativePresentationAllowed(performanceFps==0 || performanceFps>=GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode().getRefreshRate());
         preferences.putInt("captureFps", performanceFps);
         preferences.putBoolean("captureFpsChoiceV2", true);
-        int delay = Math.max(1, (int) Math.ceil(1000.0 / effectiveCaptureFps()));
-        windowFrameTimer.setDelay(delay);
-        windowFrameTimer.setInitialDelay(delay);
+        lastAppliedCaptureFps = effectiveCaptureFps();
+        windowFrameTimer.setTargetFps(backend.hasFrameNotifications() ? Math.min(30, lastAppliedCaptureFps) : lastAppliedCaptureFps);
         GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         for (int i = 0; i < displayCaptures.size(); i++) {
             int refresh = i < screens.length ? screens[i].getDisplayMode().getRefreshRate() : 0;
@@ -658,6 +693,12 @@ public final class MainWindow extends JFrame {
     }
 
     private void refreshPerformanceStats() {
+        if (effectiveCaptureFps() != lastAppliedCaptureFps) applyPerformanceFps(performanceFps);
+        windowFrameTimer.setTargetFps(backend.hasFrameNotifications() ? Math.min(30, lastAppliedCaptureFps) : lastAppliedCaptureFps);
+        lastFrameCounts.keySet().removeIf(source -> !activeView.sources.contains(source));
+        long now = System.nanoTime();
+        double elapsedSeconds = Math.max(0.001, (now - lastPerformanceSampleNanos) / 1_000_000_000.0);
+        lastPerformanceSampleNanos = now;
         if (!performanceStatus.isVisible()) return;
         double captureFps = 0, captureFrameMs = 0;
         for (DisplayCapture capture : displayCaptures) {
@@ -668,19 +709,25 @@ public final class MainWindow extends JFrame {
             captureFps /= displayCaptures.size();
         }
         performanceStatus.setText(String.format(java.util.Locale.ROOT,
-            "Preview paint %.1f FPS · Display capture %.1f FPS · Paint %.1f ms · Capture %.1f ms · accelerated surfaces %d",
-            preview.getMeasuredFps(), captureFps, preview.getLastPaintMillis(), captureFrameMs,
+            "Target %d FPS · Preview paint %.1f FPS · Display capture %.1f FPS · Paint %.1f ms · Capture %.1f ms · accelerated surfaces %d",
+            lastAppliedCaptureFps, preview.getMeasuredFps(), captureFps, preview.getLastPaintMillis(), captureFrameMs,
             preview.getAcceleratedSourceCount()));
         Source selected = sourceList.getSelectedValue();
+        if(selected!=null && selected.nativeCompositionActive) {
+            performanceStatus.setText("Target "+lastAppliedCaptureFps+" Hz · "+selected.activeCaptureBackend);
+            return;
+        }
         if (selected != null && selected.captureFramePath != null) {
             long before = lastFrameCounts.getOrDefault(selected, selected.capturedFrames);
             long unique = Math.max(0, selected.capturedFrames - before);
             lastFrameCounts.put(selected, selected.capturedFrames);
             performanceStatus.setText(performanceStatus.getText() + String.format(java.util.Locale.ROOT,
-                " · %s %.0f unique FPS · frame age %d ms · skipped %d · %d×%d",
-                selected.activeCaptureBackend, (double) unique, selected.captureLatencyMillis,
+                " · %s %.1f delivered FPS · frame age %d ms · skipped %d · %d×%d",
+                selected.activeCaptureBackend, unique / elapsedSeconds, selected.captureLatencyMillis,
                 selected.skippedFrames, selected.liveFrame == null ? 0 : selected.liveFrame.getWidth(),
                 selected.liveFrame == null ? 0 : selected.liveFrame.getHeight()));
+            performanceStatus.setText(performanceStatus.getText() + String.format(java.util.Locale.ROOT,
+                " · publish→paint %.1f ms", selected.publicationToPaintMillis));
         }
     }
 
@@ -918,10 +965,12 @@ public final class MainWindow extends JFrame {
         if (copy.quickSwapInput) copy.controlColor = nextControlColor(original);
         copy.nativeWindowHandle = original.nativeWindowHandle;
         copy.captureMethod = original.captureMethod;
-        if (original.captureFramePath != null) {
+        copy.nativeGameTest = original.nativeGameTest;
+        copy.nativePresentationEnabled = original.nativePresentationEnabled;
+        if (original.captureFramePath != null && original.kind != Source.Kind.DISPLAY) {
             copy.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID()
-                + (original.kind == Source.Kind.GAME ? ".game" : ".bmp")).toString();
-            if (original.kind == Source.Kind.GAME) backend.startGameCapture(copy.captureFramePath);
+                + (original.nativeGameTest ? ".game" : ".bmp")).toString();
+            if (original.nativeGameTest) backend.startGameCapture(copy.captureFramePath);
             else backend.registerWindowCapture(copy.name, original.inputTarget, copy.captureFramePath,
                 copy.nativeWindowHandle, copy.captureMethod, copy.captureCursor);
         }
@@ -932,7 +981,7 @@ public final class MainWindow extends JFrame {
         int index = sourceList.getSelectedIndex(); if (index < 0) return;
         Source source = activeView.sources.get(index);
         if (source.captureFramePath != null) {
-            if (source.kind == Source.Kind.GAME) backend.stopGameCapture(source.captureFramePath);
+            if (source.nativeGameTest) backend.stopGameCapture(source.captureFramePath);
             else backend.removeWindowCapture(source.captureFramePath);
         }
         activeView.sources.remove(index); activeView.controlSource = Math.min(activeView.controlSource, activeView.sources.size() - 1); sourceList.setSelectedIndex(Math.min(index, activeView.sources.size() - 1)); preview.repaint();
@@ -951,7 +1000,7 @@ public final class MainWindow extends JFrame {
     private void configureSelectedSource() {
         Source source = sourceList.getSelectedValue();
         if (source == null) return;
-        if (source.kind == Source.Kind.WINDOW) {
+        if (source.usesWindowTarget()) {
             showWindowSourceSettings(source);
         } else if (source.kind == Source.Kind.DISPLAY) {
             int device = chooseDisplayDevice();
@@ -967,7 +1016,7 @@ public final class MainWindow extends JFrame {
     }
 
     private void showWindowSourceSettings(Source source) {
-        JDialog dialog = dialog("Configure window capture");
+        JDialog dialog = dialog(source.kind == Source.Kind.GAME ? "Configure game window — WGC compatibility" : "Configure window capture");
         JPanel body = dialogBody();
         JPanel fields = transparent(new GridLayout(0, 1, 0, 8));
         JTextField name = new JTextField(source.name);
@@ -1002,29 +1051,34 @@ public final class MainWindow extends JFrame {
         fields.add(propertyLabel("Source name")); fields.add(name);
         fields.add(propertyLabel("Capture target")); JPanel targetRow = transparent(new BorderLayout(6, 0)); targetRow.add(targets); targetRow.add(scan, BorderLayout.EAST); fields.add(targetRow); fields.add(scanStatus);
         JCheckBox captureCursor = new JCheckBox("Capture cursor in this source", source.captureCursor); captureCursor.setOpaque(false); captureCursor.setForeground(palette.text); captureCursor.setIcon(new AccentCheckIcon(palette)); fields.add(captureCursor);
+        JCheckBox nativePresentation=new JCheckBox("Native window presentation in multitask mode",source.nativePresentationEnabled);
+        nativePresentation.setOpaque(false);nativePresentation.setForeground(palette.text);nativePresentation.setIcon(new AccentCheckIcon(palette));
+        fields.add(nativePresentation);
         fields.add(propertyLabel("Capture method"));
         JComboBox<String> method = new JComboBox<>(new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
         styleCombo(method); method.setSelectedIndex("WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
-        JLabel methodHint = muted("Automatic tries a window image first, then the visible desktop."); fields.add(methodHint);
+        if (source.kind == Source.Kind.GAME) { method.setModel(new DefaultComboBoxModel<>(new String[]{"WGC game-window compatibility (no desktop fallback)"})); method.setEnabled(false); }
+        JLabel methodHint = muted(source.kind == Source.Kind.GAME ? "WGC captures the selected game window; graphics API hooks are not active." : "Automatic tries WGC, then compatibility capture."); fields.add(methodHint);
         body.add(fields, BorderLayout.CENTER);
         JButton cancel = toolButton("Cancel", "Discard changes"); cancel.addActionListener(event -> dialog.dispose());
         JButton save = primaryButton("Apply changes"); save.addActionListener(event -> {
             PythonBridge.WindowTarget target = (PythonBridge.WindowTarget) targets.getSelectedItem();
             if (target == null || name.getText().trim().isEmpty()) { showNotice("Window capture", "Choose a detected window and enter a source name."); return; }
             source.name = uniqueSourceName(name.getText().trim(), source); source.customName = manualName[0]; source.inputTarget = target.title; source.nativeWindowHandle = target.hwnd;
-            source.captureMethod = method.getSelectedIndex() == 1 ? "WINDOW" : method.getSelectedIndex() == 2 ? "SCREEN" : "AUTO";
+            source.captureMethod = source.kind == Source.Kind.GAME ? "WGC" : method.getSelectedIndex() == 1 ? "WINDOW" : method.getSelectedIndex() == 2 ? "SCREEN" : "AUTO";
             source.captureCursor = captureCursor.isSelected();
+            source.nativePresentationEnabled=nativePresentation.isSelected();
             source.liveFrame = null; source.lastCaptureModified = 0;
             backend.registerWindowCapture(source.name, source.inputTarget, source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
             sourceList.repaint(); syncSelection(); preview.repaint(); dialog.dispose();
         });
         JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); actions.add(cancel); actions.add(save); body.add(actions, BorderLayout.SOUTH);
-        dialog.setContentPane(body); dialog.setSize(520, 360); dialog.setLocationRelativeTo(this); refresh.run(); dialog.setVisible(true);
+        dialog.setContentPane(body); dialog.setSize(520, Boolean.getBoolean("multimin.dev.gameCapture") ? 430 : 360); dialog.setLocationRelativeTo(this); refresh.run(); dialog.setVisible(true);
     }
 
     private void resetTransform() {
         Source source = sourceList.getSelectedValue(); if (source == null) return;
-        if (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW) { source.scale = 100; source.scaleX = source.scaleY = -1; source.freeTransform = false; source.x = 0; source.y = 0; }
+        if (source.kind == Source.Kind.DISPLAY || source.usesWindowTarget()) { source.scale = 100; source.scaleX = source.scaleY = -1; source.freeTransform = false; source.x = 0; source.y = 0; }
         else { source.scale = 38; source.x = 56; source.y = 52; }
         syncSelection(); preview.repaint();
     }
@@ -1081,6 +1135,7 @@ public final class MainWindow extends JFrame {
             inputNoticeTimer = new javax.swing.Timer(1000, event -> multitaskTargetLabel.setVisible(false));
             inputNoticeTimer.setRepeats(false);
             multitaskControls.setVisible(true); updateControlIndicator();
+            PythonBridge.prepareNativeDisplayCapture();
             setVisible(false);
             backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
             SwingUtilities.invokeLater(() -> { refreshNativeLayerLayout(); setControlTarget(activeView.controlSource); });
@@ -1104,20 +1159,52 @@ public final class MainWindow extends JFrame {
             boolean needed = false;
             for (int i = 0; i < activeView.sources.size(); i++) {
                 Source source = activeView.sources.get(i);
-                if (source.visible && source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == device) { needed = true; break; }
+                if (preview.isSourceRendered(i) && source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == device) {
+                    if (displayCaptures.size() == 1 && device == 0 && !source.nativeDisplayAttempted && backend.isReady()) {
+                        source.nativeDisplayAttempted = true;
+                        if (PythonBridge.prepareNativeDisplayCapture()) {
+                            source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".monitor").toString();
+                            backend.send("{\"command\":\"register_display_capture\",\"monitor\":1,\"path\":\"" + source.captureFramePath.replace("\\", "\\\\") + "\"}");
+                        }
+                    }
+                    if (!source.nativeDisplayFrames) needed = true;
+                }
             }
             displayCaptures.get(device).setEnabled(needed);
         }
     }
 
     private void refreshWindowFrames() {
+        preview.refreshNativePresentation();
+        if(multitask && multitaskExitButton!=null) {
+            boolean nativeSurfaces=false;
+            for(int i=0;i<activeView.sources.size();i++)nativeSurfaces|=activeView.sources.get(i).nativeCompositionActive;
+            multitaskExitButton.setToolTipText("Exit multitask mode · "+(nativeSurfaces?"Native window composition":"Capture preview"));
+        }
         refreshDisplayCaptureActivity();
-        if (!windowFrameScanQueued.compareAndSet(false, true)) return;
         List<Source> sources = new ArrayList<>();
         for (int i = 0; i < activeView.sources.size(); i++) {
             Source source = activeView.sources.get(i);
-            if (source.visible && source.captureFramePath != null) sources.add(source);
+            if (preview.isSourceRendered(i) && !source.nativeCompositionActive && source.captureFramePath != null) sources.add(source);
         }
+        List<String> activePaths = sources.stream().filter(source -> source.usesWindowTarget() || source.kind == Source.Kind.DISPLAY)
+            .map(source -> source.captureFramePath).toList();
+        if (backend.isReady() && (!captureActivitySent || !activePaths.equals(activeCapturePaths))) {
+            captureActivitySent=true;
+            activeCapturePaths = activePaths;
+            backend.setActiveWindowCaptures(activePaths);
+        }
+        boolean changed = !sources.equals(captureSnapshot);
+        captureSnapshot = List.copyOf(sources);
+        if (changed || !backend.hasFrameNotifications() || System.nanoTime()-lastFrameRequestNanos >= 100_000_000L)
+            requestWindowFrames();
+    }
+
+    private synchronized void requestWindowFrames() {
+        if (captureClosing || !windowFrameScanQueued.compareAndSet(false, true)) return;
+        List<Source> sources = captureSnapshot;
+        newFramePending.set(false);
+        lastFrameRequestNanos = System.nanoTime();
         if (sources.isEmpty()) { windowFrameScanQueued.set(false); return; }
         windowFrameWorker.execute(() -> {
             Map<Source, WindowFrameReader.Frame> frames = new HashMap<>();
@@ -1154,18 +1241,26 @@ public final class MainWindow extends JFrame {
                         }
                         BufferedImage previous = source.liveFrame;
                         source.liveFrame = frame.image;
+                        if (source.kind == Source.Kind.DISPLAY && frame.backend.contains("memory")) source.nativeDisplayFrames = true;
                         source.standbyFrame = frame.backend.contains("memory") ? previous : null;
-                        source.activeCaptureBackend = source.kind == Source.Kind.GAME
-                            ? "DirectX 11 test capture · CPU transfer" : frame.backend;
+                        source.activeCaptureBackend = source.nativeGameTest
+                            ? "DirectX 11 test capture · CPU transfer" : source.kind == Source.Kind.GAME
+                            ? "WGC game-window compatibility · " + (frame.backend.contains("shared") ? "shared memory" : "socket memory") : frame.backend;
                         source.captureLatencyMillis = frame.latencyMillis; source.capturedFrames++;
+                        source.producedNanos = frame.producedNanos;
                     }
                     if (!frames.isEmpty()) preview.repaint();
-                } finally { windowFrameScanQueued.set(false); }
+                } finally {
+                    windowFrameScanQueued.set(false);
+                    if (newFramePending.get()) requestWindowFrames();
+                }
             });
         });
     }
 
-    private void shutdownServices() {
+    private synchronized void shutdownServices() {
+        captureClosing = true;
+        backend.setFrameReadyHandler(null);
         if (performanceTimer != null) performanceTimer.stop();
         if (windowFrameTimer != null) windowFrameTimer.stop();
         windowFrameWorker.shutdownNow();
@@ -1203,7 +1298,7 @@ public final class MainWindow extends JFrame {
 
     private Source.Kind chooseSourceKind() {
         JDialog dialog = dialog("Add source"); JPanel body = dialogBody(); body.add(new JLabel("Choose a source type"), BorderLayout.NORTH); JPanel choices = transparent(new GridLayout(0, 1, 0, 6)); final Source.Kind[] result = {null};
-        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || kind == Source.Kind.GAME) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
+        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || (kind == Source.Kind.GAME && !Boolean.getBoolean("multimin.dev.gameCapture"))) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
         body.add(choices, BorderLayout.CENTER); JButton cancel = toolButton("Cancel", "Close"); cancel.addActionListener(event -> dialog.dispose()); JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT)); actions.add(cancel); body.add(actions, BorderLayout.SOUTH);
         dialog.setContentPane(body); dialog.setSize(360, 320); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
     }

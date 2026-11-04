@@ -1068,7 +1068,7 @@ class WindowsInputBridge:
             if length:
                 title = ctypes.create_unicode_buffer(length + 1)
                 self.user32.GetWindowTextW(hwnd, title, length + 1)
-                if title.value == "MultiMin":
+                if title.value in ("MultiMin", "MultiMini"):
                     hwnd_result = hwnd
                     return False
             return True

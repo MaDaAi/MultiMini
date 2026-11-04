@@ -1,10 +1,11 @@
-param([string]$OutputName = 'MultiMin.jar')
+param([string]$OutputName = '', [switch]$DevelopmentGameCapture)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $SourceRoot = Join-Path $ProjectRoot 'app\src\main\java'
 $BuildRoot = Join-Path $ProjectRoot 'build'
-$ClassRoot = Join-Path $BuildRoot 'classes'
-if ($OutputName -eq 'MultiMin.jar') {
+$ClassRoot = Join-Path $BuildRoot $(if ($DevelopmentGameCapture) { 'internal\classes-experimental' } else { 'internal\classes-regular' })
+if (-not $OutputName) { $OutputName = if ($DevelopmentGameCapture) { 'MultiMini-Experimental.jar' } else { 'MultiMini.jar' } }
+if ($OutputName) {
     $PrimaryJar = Join-Path $BuildRoot $OutputName
     if (Test-Path -LiteralPath $PrimaryJar) {
         try {
@@ -12,7 +13,7 @@ if ($OutputName -eq 'MultiMin.jar') {
                 [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
             $JarLockCheck.Dispose()
         } catch [System.IO.IOException] {
-            $OutputName = 'MultiMin-Update.jar'
+            throw "Close $OutputName before rebuilding it. The build will not create another version."
         }
     }
 }
@@ -35,6 +36,11 @@ if (-not $JavacExecutable) {
 
 & $JavacExecutable -encoding UTF-8 -d $ClassRoot $Sources
 if ($LASTEXITCODE -ne 0) { throw 'Java compilation failed.' }
+$GameCaptureFeature = if ($DevelopmentGameCapture) { 'true' } else { 'false' }
+Set-Content -LiteralPath (Join-Path $ClassRoot 'build.properties') -Value @(
+    "experimentalGameCapture=$GameCaptureFeature"
+    'nativeWindowPresentation=true'
+) -Encoding Ascii
 
 $ResourceRoot = Join-Path $ProjectRoot 'app\src\main\resources'
 if (Test-Path -LiteralPath $ResourceRoot) {
@@ -46,6 +52,12 @@ if (Test-Path -LiteralPath $ResourceRoot) {
     }
 }
 
+# Include the standard-library-only input service so a JAR launched outside
+$FrameBridge = Join-Path $ProjectRoot 'native\build\multimin-frame-bridge.dll'
+if (Test-Path -LiteralPath $FrameBridge) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $ClassRoot 'native') | Out-Null
+    Copy-Item -LiteralPath $FrameBridge -Destination (Join-Path $ClassRoot 'native\multimin-frame-bridge.dll') -Force
+}
 # Include the standard-library-only input service so a JAR launched outside
 # the source checkout can still start mouse and keyboard routing.
 $BackendSource = Join-Path $ProjectRoot 'python\multimin_backend'
@@ -71,7 +83,8 @@ if ($JarCommand) {
 
 # Keep jar's atomic temporary file under the workspace. On Windows the system
 # temp directory may be on a sandboxed volume that cannot be moved into build/.
-& $JarExecutable "-J-Djava.io.tmpdir=$BuildRoot" --create --file (Join-Path $BuildRoot $OutputName) --main-class app.multimin.Main -C $ClassRoot .
+$JarPath = Join-Path $BuildRoot $OutputName
+& $JarExecutable "-J-Djava.io.tmpdir=$BuildRoot" --create --file $JarPath --main-class app.multimin.Main -C $ClassRoot .
 if ($LASTEXITCODE -ne 0) { throw 'JAR creation failed.' }
 
-Write-Output (Join-Path $BuildRoot $OutputName)
+Write-Output $JarPath

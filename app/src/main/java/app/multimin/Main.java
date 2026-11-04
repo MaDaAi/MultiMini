@@ -9,6 +9,12 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) {
+        java.util.Properties features = new java.util.Properties();
+        try (var input = Main.class.getResourceAsStream("/build.properties")) {
+            if (input != null) features.load(input);
+        } catch (java.io.IOException ignored) { }
+        System.setProperty("multimin.dev.gameCapture", features.getProperty("experimentalGameCapture", "false"));
+        System.setProperty("multimin.nativeWindowPresentation", features.getProperty("nativeWindowPresentation", "false"));
         // Java2D uses Direct3D on supported Windows systems. Retain an opt-out
         // for drivers where accelerated volatile surfaces are unreliable.
         if ("1".equals(System.getenv("MULTIMIN_SOFTWARE_RENDERER")))

@@ -1,25 +1,26 @@
-# MultiMin
+# MultiMini
 
-MultiMin is a desktop multitasking utility for arranging display and application-window sources as layers, then viewing them together in a configurable overlay. It is built with Java/Swing and a Python helper for Windows capture and input routing.
+MultiMini is a desktop multitasking utility for arranging display and application-window sources as layers, then viewing them together in a configurable overlay. It is built with Java/Swing and a Python helper for Windows capture and input routing.
 
 ## Current release status
 
 - **Display Capture:** captures the desktop into a source layer.
 - **Window Capture:** lists visible windows and captures the selected window. Windows Graphics Capture (WGC) uses in-memory BGRA frame transfer; a BMP fallback remains available.
 - **Multitask mode:** overlays the composition and forwards input to the selected capture source using the configured hotkeys.
+- **Low-overhead window presentation:** eligible single-monitor window-only multitask layouts use Windows DWM thumbnails; unsupported or mixed layouts fall back to the regular preview pipeline.
 - **Images:** local image files can be added as sources.
 - **Temporary snapshots:** stored locally and cleaned up after seven days.
 - **Game Capture:** not included in the release source menu. Experimental DX11 development code is retained under `native/` and is not needed to build or run the release.
 - **Platform support:** Windows is the supported platform. Linux capture and input support are not implemented.
 
-MultiMin does not record video or stream. Capture is performed locally. WGC and input forwarding depend on Windows permissions and the target application's behavior.
+MultiMini does not record video or stream. Capture is performed locally. WGC and input forwarding depend on Windows permissions and the target application's behavior.
 
 ## Run the release JAR
 
-Install a Java 17 or newer runtime and Python 3.10 or newer. Download `MultiMin.jar` from the project's GitHub Releases page and start it with:
+Install a Java 17 or newer runtime and Python 3.10 or newer. Download `MultiMini-Beta-0.01-Windows.jar` from the project's GitHub Releases page and start it with:
 
 ```powershell
-java -Xmx2g -XX:G1HeapRegionSize=32m -jar .\MultiMin.jar
+java --enable-native-access=ALL-UNNAMED -Xmx2g -XX:G1HeapRegionSize=32m -jar .\MultiMini-Beta-0.01-Windows.jar
 ```
 
 Python dependencies for WGC and snapshots are listed in `python/requirements.txt`. Install them with `py -3 -m pip install -r python/requirements.txt` if those optional features are unavailable. Windows may request screen-capture permission.
@@ -29,17 +30,18 @@ Python dependencies for WGC and snapshots are listed in `python/requirements.txt
 Requirements: JDK 17+, Python 3.10+, and (for WGC/snapshot extras) the packages in `python/requirements.txt`.
 
 ```powershell
-.
-scripts\build.ps1
-scripts\run.ps1
+.\scripts\build.ps1
+.\scripts\run.ps1
 ```
 
-The JAR is written to `build/MultiMin.jar`. Native C++/MSVC and the Windows SDK are not required for the release build. The experimental native DX11 test component has separate instructions in [native/README.md](native/README.md) and is not exposed in the release UI.
+The regular JAR is `build/MultiMini.jar`. Build the experimental version with `scripts/build.ps1 -DevelopmentGameCapture`; its JAR is `build/MultiMini-Experimental.jar`, and double-clicking it enables the development source menu. `scripts/run.ps1 -DevelopmentGameCapture` builds and starts that same version. Older builds are kept under `build/archive/`, and compiler/test outputs under `build/internal/`. Builds no longer generate extra update versions when a JAR is open: close that app before rebuilding it.
+
+Native C++/MSVC and the Windows SDK are not required to run the app. The optional native helper DLL is bundled in the release build when available; the app falls back to its regular capture path if it cannot load. Native development instructions are in [native/README.md](native/README.md). See [performance notes](docs/PERFORMANCE.md) for measured results and limits.
 
 ## Settings and data
 
-Preferences are stored in the user's local Java preferences. Temporary snapshots are stored locally and automatically removed after seven days. MultiMin does not intentionally upload captured content. Do not capture content unless you have permission to access and display it.
+Preferences are stored in the user's local Java preferences. Temporary snapshots are stored locally and automatically removed after seven days. MultiMini does not intentionally upload captured content. Do not capture content unless you have permission to access and display it.
 
 ## Contributing and licensing
 
-Contributions and bug reports are welcome. The application is licensed under the [MIT License](LICENSE); third-party libraries retain their own terms. See [Terms of Service](TERMS.md) for use conditions. OBS terminology and workflow may be familiar, but MultiMin's implementation is independent and does not include OBS source code.
+Contributions and bug reports are welcome. The application is licensed under the [MIT License](LICENSE); third-party libraries retain their own terms. See [Terms of Service](TERMS.md) for use conditions. OBS terminology and workflow may be familiar, but MultiMini's implementation is independent and does not include OBS source code.

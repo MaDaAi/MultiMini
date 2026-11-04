@@ -41,6 +41,7 @@ public final class DisplayCapture implements AutoCloseable {
     private final AtomicLong framesInWindow = new AtomicLong();
     private volatile long sampleStartedNanos = System.nanoTime();
     private volatile ScheduledFuture<?> captureTask;
+    private long lastCaptureStartNanos;
 
     public DisplayCapture() throws Exception {
         this(GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice());
@@ -64,7 +65,9 @@ public final class DisplayCapture implements AutoCloseable {
     }
 
     public synchronized void setTargetFps(int fps) {
-        targetFps = Math.max(1, Math.min(240, fps));
+        int requested = Math.max(1, Math.min(1000, fps));
+        if (targetFps == requested) return;
+        targetFps = requested;
         if (running) scheduleCapture();
     }
 
@@ -74,10 +77,13 @@ public final class DisplayCapture implements AutoCloseable {
     private synchronized void scheduleCapture() {
         if (!running) return;
         if (captureTask != null) captureTask.cancel(false);
-        long period = Math.max(1, (long) Math.ceil(1000.0 / targetFps));
+        long period = Math.max(1, 1_000_000_000L / targetFps);
         captureTask = capture.scheduleAtFixedRate(() -> {
             if (!running || !enabled) return;
             long started = System.nanoTime();
+            // Skip overdue scheduler ticks rather than capturing a burst of stale work.
+            if (started - lastCaptureStartNanos < period / 2) return;
+            lastCaptureStartNanos = started;
             try {
                 MultiResolutionImage capture = robot.createMultiResolutionScreenCapture(bounds);
                 Image variant = capture.getResolutionVariants().stream()
@@ -120,10 +126,16 @@ public final class DisplayCapture implements AutoCloseable {
                 }
             }
             catch (Exception error) { errorConsumer.accept(error); }
-        }, 0, period, TimeUnit.MILLISECONDS);
+        }, 0, period, TimeUnit.NANOSECONDS);
     }
 
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public void setEnabled(boolean enabled) {
+        if (this.enabled != enabled) {
+            measuredFps = 0; lastFrameMillis = 0;
+            framesInWindow.set(0); sampleStartedNanos = System.nanoTime();
+        }
+        this.enabled = enabled;
+    }
     public void setExcludedRegionSupplier(Supplier<Rectangle> supplier) { excludedRegion = supplier == null ? () -> null : supplier; }
 
     @Override public void close() {

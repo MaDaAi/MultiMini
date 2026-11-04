@@ -26,8 +26,16 @@ public final class PythonBridge implements AutoCloseable {
     private volatile boolean startupComplete;
     private volatile int frameStreamPort;
     private volatile boolean gameAvailable;
+    private volatile boolean frameNotifications;
+    private volatile Runnable frameReadyHandler = () -> {};
+    public boolean hasFrameNotifications() { return frameNotifications; }
+    public void setFrameReadyHandler(Runnable handler) { frameReadyHandler = handler == null ? () -> {} : handler; }
     public int frameStreamPort() { return frameStreamPort; }
     public boolean gameAvailable() { return gameAvailable; }
+    public static boolean prepareNativeDisplayCapture() {
+        try { return SharedFrameBridge.AVAILABLE && SharedFrameBridge.excludeOwnWindows() > 0; }
+        catch (LinkageError error) { return false; }
+    }
     public void setGameStatusHandler(java.util.function.BiConsumer<String, String> handler) {
         gameStatusHandler = handler == null ? (ignoredPath, ignoredStatus) -> {} : handler;
     }
@@ -59,22 +67,24 @@ public final class PythonBridge implements AutoCloseable {
                         Matcher framePortMatch = Pattern.compile("\\\"frame_port\\\":(\\d+)").matcher(line);
                         if (framePortMatch.find()) frameStreamPort = Integer.parseInt(framePortMatch.group(1));
                         gameAvailable = line.contains("\"game_available\":true");
+                        frameNotifications = line.contains("\"frame_notifications\":true");
                         ready = true;
                         startupComplete = true;
                         status.accept("Input passthrough ready · live display active");
                         flushPendingCommands();
                         while ((line = reader.readLine()) != null) {
-                            if (line.contains("\"event\":\"quick_swap\"")) quickSwapHandler.accept("quick_swap");
+                            if (line.contains("\"event\":\"frame_ready\"")) frameReadyHandler.run();
+                            else if (line.contains("\"event\":\"quick_swap\"")) quickSwapHandler.accept("quick_swap");
                             else if (line.contains("\"event\":\"layer_swap\"")) quickSwapHandler.accept("layer_swap");
                             else if (line.contains("\"event\":\"layer_layout_changed\"")) quickSwapHandler.accept("visual_stack_applied");
                             else if (line.contains("\"event\":\"input_target_changed\"")) quickSwapHandler.accept("visual_stack_applied");
                             else if (line.contains("\"event\":\"toggle_multitask\"")) quickSwapHandler.accept("toggle_multitask");
                             else if (line.contains("\"event\":\"window_list\"")) windowListHandler.accept(parseWindowList(line));
-                            else if (line.contains("\"event\":\"game_capture_status\"")) {
+                            else if (line.contains("\"event\":\"game_capture_status\"") || line.contains("\"event\":\"capture_status\"")) {
                                 Matcher gameStatus = Pattern.compile("\\\"status\\\":\\\"([^\\\"]+)\\\"").matcher(line);
-                                Matcher gameSource = Pattern.compile("([0-9a-fA-F-]+\\.game)").matcher(line);
+                                Matcher gameSource = Pattern.compile("([0-9a-fA-F-]+\\.(?:game|monitor))").matcher(line);
                                 if (gameStatus.find()) {
-                                    status.accept("DirectX 11 test capture: " + gameStatus.group(1).replace('_', ' '));
+                                    status.accept((line.contains(".monitor") ? "Native display capture: " : "DirectX 11 test capture: ") + gameStatus.group(1).replace('_', ' '));
                                     if (gameSource.find()) gameStatusHandler.accept(gameSource.group(1), gameStatus.group(1));
                                 }
                             }
@@ -158,6 +168,10 @@ public final class PythonBridge implements AutoCloseable {
     }
     public void removeWindowCapture(String path) {
         send("{\"command\":\"remove_window_capture\",\"path\":\"" + escape(path) + "\"}");
+    }
+    public void setActiveWindowCaptures(List<String> paths) {
+        send("{\"command\":\"active_window_captures\",\"paths\":[" + paths.stream()
+            .map(path -> "\"" + escape(path) + "\"").collect(java.util.stream.Collectors.joining(",")) + "]}");
     }
     public void startGameCapture(String source) {
         send("{\"command\":\"start_game_capture\",\"path\":\"" + escape(source) + "\"}");

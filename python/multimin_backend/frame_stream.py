@@ -6,10 +6,38 @@ import socket
 import struct
 import threading
 import time
+import mmap
+import sys
+import secrets
+
+
+class SharedReply:
+    """One mapping per serialized connection; not rewritten until its next request."""
+    def __init__(self):
+        self.mapping = None
+        self.capacity = 0
+        self.name = ''
+
+    def write(self, pixels):
+        if self.capacity < len(pixels):
+            self.close()
+            self.name = 'Local\\MultiMiniFrame-' + secrets.token_hex(16)
+            self.mapping = mmap.mmap(-1, len(pixels), tagname=self.name)
+            self.capacity = len(pixels)
+        self.mapping.seek(0)
+        self.mapping.write(pixels)
+        return self.name.encode('ascii')
+
+    def close(self):
+        if self.mapping is not None:
+            self.mapping.close()
+        self.mapping = None
+        self.capacity = 0
 
 
 class FrameStream:
-    def __init__(self) -> None:
+    def __init__(self, on_publish=None) -> None:
+        self._on_publish = on_publish
         self._lock = threading.Lock()
         self._frames: dict[str, tuple[int, int, int, int, bytes]] = {}
         self._sequence: dict[str, int] = {}
@@ -29,6 +57,8 @@ class FrameStream:
             sequence = self._sequence.get(source, 0) + 1
             self._sequence[source] = sequence
             self._frames[source] = (width, height, sequence, time.monotonic_ns(), pixels)
+        if self._on_publish is not None:
+            self._on_publish()
 
     def remove(self, source: str) -> None:
         with self._lock:
@@ -50,14 +80,18 @@ class FrameStream:
             threading.Thread(target=self._client, args=(client,), daemon=True).start()
 
     def _client(self, client: socket.socket) -> None:
+        shared = SharedReply()
         with client:
+            client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             client.settimeout(5.0)
             try:
                 while not self._stop.is_set():
                     size = self._read_exact(client, 2)
                     if not size:
                         return
-                    name_length = struct.unpack("!H", size)[0]
+                    request = struct.unpack("!H", size)[0]
+                    shared_requested = bool(request & 0x8000) and sys.platform == 'win32'
+                    name_length = request & 0x7fff
                     if name_length > 4096:
                         return
                     name = self._read_exact(client, name_length)
@@ -74,11 +108,22 @@ class FrameStream:
                     else:
                         width, height, sequence, timestamp, pixels = frame
                         changed = sequence != previous_sequence
+                        if changed and shared_requested:
+                            try:
+                                mapping_name = shared.write(pixels)
+                            except (OSError, ValueError):
+                                shared_requested = False
+                            else:
+                                client.sendall(struct.pack("!IIQQIH", width, height, sequence, timestamp,
+                                                           0xffffffff, len(mapping_name)) + mapping_name)
+                                continue
                         client.sendall(struct.pack("!IIQQI", width, height, sequence, timestamp, len(pixels) if changed else 0))
                         if changed:
                             client.sendall(pixels)
             except (OSError, UnicodeDecodeError):
                 return
+            finally:
+                shared.close()
 
     @staticmethod
     def _read_exact(client: socket.socket, count: int) -> bytes | None:

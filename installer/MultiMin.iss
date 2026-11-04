@@ -1,21 +1,21 @@
-#define AppName "MultiMin"
+#define AppName "MultiMini"
 #define AppVersion "0.1.0"
-#define AppPublisher "MultiMin contributors"
-#define JarPath "..\build\MultiMin.jar"
+#define AppPublisher "MultiMini contributors"
+#define JarPath "..\build\MultiMini.jar"
 
 [Setup]
 AppId={{9F5C3C23-13F1-4C6A-A355-7B361F649AF1}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\MultiMin
-DefaultGroupName=MultiMin
+DefaultDirName={autopf}\MultiMini
+DefaultGroupName=MultiMini
 OutputDir=..\dist
-OutputBaseFilename=MultiMin-Setup-{#AppVersion}
+OutputBaseFilename=MultiMini-Setup-{#AppVersion}
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 WizardStyle=modern
-UninstallDisplayIcon={app}\MultiMin.jar
+UninstallDisplayIcon={app}\MultiMini.jar
 LicenseFile=..\LICENSE
 DisableProgramGroupPage=yes
 
@@ -25,8 +25,8 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\TERMS.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\MultiMin"; Filename: "{sys}\cmd.exe"; Parameters: "/c javaw -Xmx2g -XX:G1HeapRegionSize=32m -jar ""{app}\MultiMin.jar"""; WorkingDir: "{app}"
-Name: "{autodesktop}\MultiMin"; Filename: "{sys}\cmd.exe"; Parameters: "/c javaw -Xmx2g -XX:G1HeapRegionSize=32m -jar ""{app}\MultiMin.jar"""; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\MultiMini"; Filename: "{sys}\cmd.exe"; Parameters: "/c javaw -Xmx2g -XX:G1HeapRegionSize=32m -jar ""{app}\MultiMini.jar"""; WorkingDir: "{app}"
+Name: "{autodesktop}\MultiMini"; Filename: "{sys}\cmd.exe"; Parameters: "/c javaw -Xmx2g -XX:G1HeapRegionSize=32m -jar ""{app}\MultiMini.jar"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
