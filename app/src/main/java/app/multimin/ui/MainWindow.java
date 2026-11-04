@@ -99,6 +99,10 @@ public final class MainWindow extends JFrame {
     private javax.swing.Timer inputNoticeTimer;
     private View activeView;
     private boolean multitask;
+    private final WorkspaceStore workspaceStore = new WorkspaceStore();
+    private javax.swing.Timer workspaceTimer;
+    private boolean workspaceWritable = true, restoredTargetsRequested;
+    private String pendingImagePath = "";
 
     public MainWindow(PythonBridge backend) {
         super("MultiMini");
@@ -109,8 +113,15 @@ public final class MainWindow extends JFrame {
         try { frameDirectory = Files.createTempDirectory("multimin-window-frames-"); }
         catch (java.io.IOException error) { frameDirectory = Path.of(System.getProperty("java.io.tmpdir"), "multimin-window-frames"); }
         windowFramesDirectory = frameDirectory;
-        views.add(new View("Work")); views.add(new View("Media")); views.add(new View("Game"));
-        activeView = views.get(0);
+        int restoredActive = 0;
+        try { var saved = workspaceStore.load(); views.addAll(saved.views()); restoredActive = saved.active(); }
+        catch (java.io.IOException error) { workspaceWritable = false; SwingUtilities.invokeLater(() -> showNotice("Workspace recovery", error.getMessage())); }
+        if (views.isEmpty()) { views.add(new View("Work")); views.add(new View("Media")); views.add(new View("Game")); }
+        activeView = views.get(restoredActive);
+        for (View view : views) for (int i=0;i<view.sources.size();i++) {
+            Source source=view.sources.get(i);
+            if(source.kind==Source.Kind.IMAGE && !source.imagePath.isBlank())try{source.liveFrame=ImageIO.read(Path.of(source.imagePath).toFile());}catch(Exception ignored){source.activeCaptureBackend="Image file unavailable";}
+        }
         preview = new PreviewPanel(palette, activeView);
         preview.setNativePresentationAllowed(performanceFps==0 || performanceFps>=GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode().getRefreshRate());
         preview.onSelectionChanged(index -> sourceList.setSelectedIndex(index));
@@ -215,6 +226,7 @@ public final class MainWindow extends JFrame {
             requestWindowFrames();
         });
         addWindowListener(new WindowAdapter() { @Override public void windowClosing(WindowEvent event) { shutdownServices(); } });
+        workspaceTimer = new javax.swing.Timer(5000, event -> saveWorkspace()); workspaceTimer.start();
     }
 
     private void buildUi() {
@@ -597,11 +609,12 @@ public final class MainWindow extends JFrame {
         if (windowBased) {
             if (kind == Source.Kind.GAME) { source.captureMethod = "WGC"; source.quickSwapInput = true; source.controlColor = nextControlColor(source); }
             source.nativeWindowHandle = windowTarget.hwnd;
+            source.windowProcess = windowTarget.process;
             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".bmp").toString();
             backend.registerWindowCapture(source.name, target.trim(), source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
             source.inputTarget = target.trim();
         }
-        if (kind == Source.Kind.IMAGE) { source.liveFrame = pendingImage; pendingImageName = null; pendingImage = null; }
+        if (kind == Source.Kind.IMAGE) { source.liveFrame = pendingImage; source.imagePath = pendingImagePath; pendingImageName = null; pendingImage = null; }
         activeView.sources.add(0, source); sourceList.setSelectedIndex(0); preview.repaint();
     }
 
@@ -800,6 +813,12 @@ public final class MainWindow extends JFrame {
         JPanel body = dialogBody();
         JPanel fields = transparent(new GridLayout(0, 1, 0, 5));
         fields.setBorder(new EmptyBorder(2, 0, 8, 0));
+        fields.add(settingsGroup("Application"));
+        JButton updates = quietButton(Boolean.getBoolean("multimin.publicUpdates") ? "Check for updates" : "Update information");
+        updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } shutdownServices(); dispose(); System.exit(0); }));
+        fields.add(settingsRow("Updates", Boolean.getBoolean("multimin.publicUpdates") ? "GitHub releases · preserves your workspace" : "Manual updates · private repository", updates));
+        JButton legal = quietButton("Read agreement & privacy"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
+        fields.add(settingsRow("Publisher: Mansoor Alakoozai", "Canada · support through GitHub Issues", legal));
         fields.add(settingsGroup("Appearance"));
         JComboBox<String> stagedAccent = new JComboBox<>(new String[]{"Blue", "Red", "Orange", "Yellow", "Green", "Purple", "White", "Black", "Custom…"});
         styleCombo(stagedAccent); stagedAccent.setFocusable(false); stagedAccent.setSelectedItem(accentMode.getSelectedItem());
@@ -926,6 +945,7 @@ public final class MainWindow extends JFrame {
         catch (Exception ignored) { pendingImage = null; }
         if (pendingImage == null) { showNotice("Image source", "That file could not be opened as an image."); return false; }
         pendingImageName = chooser.getSelectedFile().getName();
+        pendingImagePath = chooser.getSelectedFile().getAbsolutePath();
         int extension = pendingImageName.lastIndexOf('.'); if (extension > 0) pendingImageName = pendingImageName.substring(0, extension);
         return true;
     }
@@ -964,6 +984,8 @@ public final class MainWindow extends JFrame {
         Source copy = new Source(uniqueSourceName(original.name + " copy"), original.kind); copy.customName = original.customName; copy.captureCursor = original.captureCursor; copy.visible = original.visible; copy.quickSwapInput = original.quickSwapInput; copy.inputTarget = original.inputTarget; copy.opacity = original.opacity; copy.scale = original.scale; copy.scaleX = original.scaleX; copy.scaleY = original.scaleY; copy.freeTransform = original.freeTransform; copy.x = Math.min(100, original.x + 5); copy.y = Math.min(100, original.y + 5); copy.liveFrame = original.kind == Source.Kind.IMAGE ? original.liveFrame : null;
         if (copy.quickSwapInput) copy.controlColor = nextControlColor(original);
         copy.nativeWindowHandle = original.nativeWindowHandle;
+        copy.windowProcess = original.windowProcess;
+        copy.imagePath = original.imagePath;
         copy.captureMethod = original.captureMethod;
         copy.nativeGameTest = original.nativeGameTest;
         copy.nativePresentationEnabled = original.nativePresentationEnabled;
@@ -1064,7 +1086,7 @@ public final class MainWindow extends JFrame {
         JButton save = primaryButton("Apply changes"); save.addActionListener(event -> {
             PythonBridge.WindowTarget target = (PythonBridge.WindowTarget) targets.getSelectedItem();
             if (target == null || name.getText().trim().isEmpty()) { showNotice("Window capture", "Choose a detected window and enter a source name."); return; }
-            source.name = uniqueSourceName(name.getText().trim(), source); source.customName = manualName[0]; source.inputTarget = target.title; source.nativeWindowHandle = target.hwnd;
+            source.name = uniqueSourceName(name.getText().trim(), source); source.customName = manualName[0]; source.inputTarget = target.title; source.nativeWindowHandle = target.hwnd; source.windowProcess = target.process;
             source.captureMethod = source.kind == Source.Kind.GAME ? "WGC" : method.getSelectedIndex() == 1 ? "WINDOW" : method.getSelectedIndex() == 2 ? "SCREEN" : "AUTO";
             source.captureCursor = captureCursor.isSelected();
             source.nativePresentationEnabled=nativePresentation.isSelected();
@@ -1259,6 +1281,8 @@ public final class MainWindow extends JFrame {
     }
 
     private synchronized void shutdownServices() {
+        if (workspaceTimer != null) workspaceTimer.stop();
+        saveWorkspace();
         captureClosing = true;
         backend.setFrameReadyHandler(null);
         if (performanceTimer != null) performanceTimer.stop();
@@ -1280,7 +1304,30 @@ public final class MainWindow extends JFrame {
         root.getActionMap().put("exit-multitask", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { if (multitask) setMultitask(false); } });
     }
 
-    public void setBackendStatus(String status) { SwingUtilities.invokeLater(() -> backendStatus.setText(status)); }
+    private void saveWorkspace() {
+        if (!workspaceWritable) return;
+        try { workspaceStore.save(views, activeView); }
+        catch (java.io.IOException error) { backendStatus.setText("Workspace save failed: " + error.getMessage()); }
+    }
+    public void setBackendStatus(String status) { SwingUtilities.invokeLater(() -> {
+        backendStatus.setText(status);
+        if (backend.isReady() && !restoredTargetsRequested) {
+            restoredTargetsRequested = true;
+            backend.requestWindowList(targets -> SwingUtilities.invokeLater(() -> {
+                for(View view:views) for(int i=0;i<view.sources.size();i++) {
+                    Source source=view.sources.get(i);
+                    if(!source.usesWindowTarget() || source.captureFramePath!=null) continue;
+                    if (source.kind==Source.Kind.GAME && !Boolean.getBoolean("multimin.dev.gameCapture")) { source.activeCaptureBackend="Experimental source unavailable in this build";continue; }
+                    var matches=targets.stream().filter(t -> t.title.equals(source.inputTarget) && !source.windowProcess.isBlank() && source.windowProcess.equalsIgnoreCase(t.process)).toList();
+                    if(matches.size()!=1){source.activeCaptureBackend="Reselect target: window missing or ambiguous";continue;}
+                    source.nativeWindowHandle=matches.get(0).hwnd;
+                    source.captureFramePath=windowFramesDirectory.resolve(java.util.UUID.randomUUID()+".bmp").toString();
+                    backend.registerWindowCapture(source.name,source.inputTarget,source.captureFramePath,source.nativeWindowHandle,source.captureMethod,source.captureCursor);
+                }
+                preview.repaint();
+            }));
+        }
+    }); }
 
     private void showNotice(String title, String message) {
         JDialog dialog = dialog(title); JPanel body = dialogBody();
@@ -1354,4 +1401,3 @@ public final class MainWindow extends JFrame {
     private JLabel muted(String text) { JLabel label = new JLabel(text); label.setForeground(palette.muted); label.setFont(label.getFont().deriveFont(10f)); return label; }
     private JPanel transparent(LayoutManager layout) { JPanel panel = new JPanel(layout); panel.setOpaque(false); return panel; }
 }
-

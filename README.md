@@ -17,13 +17,13 @@ MultiMini does not record video or stream. Capture is performed locally. WGC and
 
 ## Install on Windows
 
-Download `MultiMini-Setup-0.01-Windows-x64.exe` from GitHub Releases and run it. The installer bundles Java, Python, and the capture libraries. Users do not need to install those separately. Launch MultiMini from the Start menu or desktop shortcut. New views begin with no sources; use Add to choose your captures.
+Download `MultiMini-Setup-0.02-Windows-x64.exe` from GitHub Releases and run it. The installer bundles Java, Python, and the capture libraries. Users do not need to install those separately. Launch MultiMini from the Start menu or desktop shortcut. New views begin with no sources; use Add to choose your captures.
 
 The installer is currently unsigned. A clean Windows machine test is still recommended before public distribution. See [installer build instructions](docs/WINDOWS_INSTALLER.md).
 
 ## Run the standalone JAR
 
-Install a Java 17 or newer runtime and Python 3.10 or newer. Download `MultiMini-Beta-0.01-Windows.jar` from the project's GitHub Releases page and start it with:
+Install a Java 26 or newer runtime and Python 3.10 or newer. Download `MultiMini-Beta-0.01-Windows.jar` from the project's GitHub Releases page and start it with:
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED -Xmx2g -XX:G1HeapRegionSize=32m -jar .\MultiMini-Beta-0.01-Windows.jar
@@ -33,7 +33,7 @@ Python dependencies for WGC and snapshots are listed in `python/requirements.txt
 
 ## Build from source
 
-Requirements: JDK 17+, Python 3.10+, and (for WGC/snapshot extras) the packages in `python/requirements.txt`.
+Requirements: JDK 26+, Python 3.10+, and (for WGC/snapshot extras) the packages in `python/requirements.txt`.
 
 ```powershell
 .\scripts\build.ps1
@@ -46,8 +46,12 @@ Native C++/MSVC and the Windows SDK are not required to run the app. The optiona
 
 ## Settings and data
 
-Preferences are stored in the user's local Java preferences. Temporary snapshots are stored locally and automatically removed after seven days. MultiMini does not intentionally upload captured content. Do not capture content unless you have permission to access and display it.
+Preferences and workspaces are stored in `%APPDATA%\MultiMin`, outside the installation, and survive updates. Snapshot cleanup removes snapshots older than seven days when the app runs its cleanup routine. MultiMini does not intentionally upload captured content. Optional update checks contact GitHub after user confirmation. Read the [Privacy Notice](PRIVACY.md) and [User Agreement](TERMS.md) for details.
 
 ## Contributing and licensing
 
 Contributions and bug reports are welcome. The application is licensed under the [MIT License](LICENSE); third-party libraries retain their own terms. See [Terms of Service](TERMS.md) for use conditions. OBS terminology and workflow may be familiar, but MultiMini's implementation is independent and does not include OBS source code.
+
+Workspace saving, optional GitHub updates and the agreement flow are described in [release review notes](docs/WORKSPACES_UPDATES_LEGAL.md).
+
+This beta keeps the repository private and uses manual updates. In-app update checks are disabled. Run a newer installer over the existing installation to keep local workspace data.

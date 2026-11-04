@@ -40,9 +40,13 @@ $GameCaptureFeature = if ($DevelopmentGameCapture) { 'true' } else { 'false' }
 Set-Content -LiteralPath (Join-Path $ClassRoot 'build.properties') -Value @(
     "experimentalGameCapture=$GameCaptureFeature"
     'nativeWindowPresentation=true'
+    'publicUpdates=false'
 ) -Encoding Ascii
 
 $ResourceRoot = Join-Path $ProjectRoot 'app\src\main\resources'
+$LegalRoot = Join-Path $ClassRoot 'legal'
+New-Item -ItemType Directory -Force -Path $LegalRoot | Out-Null
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'TERMS.md'),(Join-Path $ProjectRoot 'PRIVACY.md'),(Join-Path $ProjectRoot 'LICENSE') -Destination $LegalRoot -Force
 if (Test-Path -LiteralPath $ResourceRoot) {
     Get-ChildItem -LiteralPath $ResourceRoot -File -Recurse | ForEach-Object {
         $relative = $_.FullName.Substring($ResourceRoot.Length).TrimStart('\')

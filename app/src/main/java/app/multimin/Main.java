@@ -15,6 +15,7 @@ public final class Main {
         } catch (java.io.IOException ignored) { }
         System.setProperty("multimin.dev.gameCapture", features.getProperty("experimentalGameCapture", "false"));
         System.setProperty("multimin.nativeWindowPresentation", features.getProperty("nativeWindowPresentation", "false"));
+        System.setProperty("multimin.publicUpdates", features.getProperty("publicUpdates", "false"));
         // Java2D uses Direct3D on supported Windows systems. Retain an opt-out
         // for drivers where accelerated volatile surfaces are unreliable.
         if ("1".equals(System.getenv("MULTIMIN_SOFTWARE_RENDERER")))
@@ -52,6 +53,7 @@ public final class Main {
         UIManager.put("ScrollBar.thumb", new java.awt.Color(82, 90, 105));
 
         SwingUtilities.invokeLater(() -> {
+            if (!app.multimin.ui.LegalConsent.ensureAccepted()) return;
             PythonBridge backend = new PythonBridge();
             MainWindow window = new MainWindow(backend);
             window.setVisible(true);

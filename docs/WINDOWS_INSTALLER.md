@@ -6,7 +6,7 @@ Build on Windows x64 with a JDK containing jpackage, Python 3.14 x64 with pip, a
 powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -PythonExecutable 'C:\path\to\python.exe' -InnoCompiler 'C:\path\to\ISCC.exe'
 ```
 
-Output: `dist/MultiMini-Setup-0.01-Windows-x64.exe` and its SHA256 checksum.
+Output: `dist/MultiMini-Setup-0.02-Windows-x64.exe` and its SHA256 checksum.
 
 The installer includes a jpackage launcher and Java runtime, the official CPython 3.14.0 x64 embeddable runtime, the backend modules, and binary packages from python/requirements.txt. Embedded Python uses explicit private import paths. The app selects its packaged interpreter before searching for system Python. Third-party notices remain alongside their libraries and in the Java runtime legal directory.
 

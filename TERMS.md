@@ -1,37 +1,24 @@
-# MultiMin Terms of Service
+# MultiMini User Agreement and Terms
 
-**Effective date: October 30, 2026**
+Effective date and agreement version: November 4, 2026 (2026-11-04).
+Publisher: Mansoor Alakoozai, Canada. Support: https://github.com/MaDaAi/MultiMini/issues.
 
-These terms apply to your use of MultiMin. By using the application, you agree to these terms. If you do not agree, do not use it.
+Please read these terms and the Privacy Notice before enabling capture or input routing. Selecting Agree records acceptance of this version locally on your device. If you do not agree, close the app. These terms do not override rights granted by the MIT software license or mandatory rights under applicable law.
 
-## What MultiMin does
+## Purpose and permissions
+MultiMini is a desktop multitasking utility. It displays selected windows, displays and images, and routes keyboard and mouse input to a chosen application during multitask mode. It does not offer video recording, streaming, cloud storage or a backup service. You choose sources and remain responsible for the actions you perform through them. Input forwarding can interact with the wrong control if windows change, close or move. Verify the controlled source, exit multitask mode before sensitive operations, and keep independent backups. Do not rely on MultiMini for safety-critical or emergency operations.
 
-MultiMin is a local desktop utility for displaying and arranging desktop and application-window sources and routing user input in multitask mode. It is not a recording, streaming, backup, or content-distribution service. Experimental Game Capture code is not part of the release functionality.
+## Lawful use and third-party rights
+Use only devices, accounts and content you are authorized to access and capture. Respect privacy, copyright, workplace rules, software licenses and game policies. Obtain any permissions required from other people. Do not use the app to evade access controls, capture protections or anti-cheat measures, or to interfere with others' systems. Capture compatibility does not imply permission from a target application's owner. Third-party software, games, browsers and GitHub have their own terms and licenses.
 
-## Your responsibilities
+## Local data and updates
+The Privacy Notice explains saved window titles, source paths, settings and temporary snapshots. Do not put secrets in public GitHub issues. Updates are optional and checked only when requested. Updating contacts GitHub and downloads a Windows installer. After confirmation, the app saves your workspace, exits, replaces its installed files and restarts. Personal settings and workspace files are stored separately. Back up important data; storage failures, permissions, incompatible future formats or interrupted updates may cause loss. Performance and compatibility vary. No particular FPS, latency, retention outcome, or support availability is promised.
 
-You are responsible for your use of MultiMin and for ensuring you have the right to view, capture, manipulate, and display any window, screen, image, or other material you select. Follow applicable laws, workplace or school rules, software terms, and the instructions of the owner of the content or device. Do not use MultiMin to access systems or content without authorization, interfere with another person's use, or bypass security or anti-cheat protections.
+## License, warranty and responsibility
+The source code is provided under the included MIT License; third-party components retain their licenses. To the extent permitted by law, the app is provided as is and as available, without implied warranties of merchantability, fitness for a particular purpose or noninfringement. To the extent permitted by law, the publisher and contributors are not liable for indirect, incidental, special or consequential loss, including lost data or profits, resulting from use or inability to use the app. These provisions do not exclude fraud, intentional wrongdoing, non-excludable liability or mandatory consumer rights, and do not require you to waive statutory remedies. No additional restriction on copying or redistribution of MIT-licensed code is imposed by this agreement.
 
-## Local processing and snapshots
+## Changes and support
+Material changes to this agreement or privacy practices require a new agreement version and a new in-app acceptance before capture starts. You may decline and stop using the updated app. You can retain a copy of these documents from the installation or repository. Support and bug reports go through GitHub Issues. Avoid publishing personal or confidential information; public issues are visible to others. Nothing here guarantees legal compliance for your particular use or limits rights that cannot lawfully be limited.
 
-Capture and input routing are intended to run locally on your device. The app does not intentionally send captured content to a MultiMin-operated server. Temporary snapshots may be written to local storage and are intended to be automatically deleted after seven days. You are responsible for securing your device and any copies you make.
-
-## Third-party software
-
-MultiMin may rely on third-party runtimes, libraries, operating-system capture APIs, and target applications. Those components may have separate licenses and terms. Their availability and behavior are not controlled by MultiMin's maintainers.
-
-## No warranty
-
-MultiMin is provided “as is” under the warranty disclaimer in the [MIT License](LICENSE). Capture, input forwarding, compatibility, performance, and data cleanup can vary by operating system, permissions, hardware, and application. Keep independent backups of anything important.
-
-## Limitation of liability
-
-To the maximum extent permitted by law, MultiMin's contributors are not liable for indirect, incidental, special, consequential, or punitive damages, or for loss of data, profits, or access arising from use of the application. Nothing in these terms limits liability where applicable law does not permit that limitation.
-
-## Changes
-
-These terms may be updated with a later release. Continued use after an updated version is published constitutes acceptance of the updated terms to the extent permitted by law.
-
-## Contact
-
-For support or legal notices, use the contact method listed on the MultiMin GitHub repository.
+## Current private-beta distribution
+The publisher currently uses a private GitHub repository and manual updates. In-app public update checks are disabled. Only people granted repository access can use its GitHub support and release pages. Obtain updates through your authorized account and install them over the existing installation to retain local workspace data.

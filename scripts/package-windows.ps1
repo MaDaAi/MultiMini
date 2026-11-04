@@ -1,4 +1,4 @@
-param([string]$Version = '0.01', [string]$PythonExecutable = '', [string]$InnoCompiler = '')
+param([string]$Version = '0.02', [string]$PythonExecutable = '', [string]$InnoCompiler = '')
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
@@ -25,7 +25,7 @@ $PythonRoot = Join-Path $InputRoot 'python'
 $RuntimeRoot = Join-Path $PythonRoot 'runtime'
 New-Item -ItemType Directory -Force $RuntimeRoot | Out-Null
 Copy-Item 'build\MultiMini.jar' $InputRoot
-Copy-Item README.md,LICENSE,TERMS.md $InputRoot
+Copy-Item README.md,LICENSE,TERMS.md,PRIVACY.md $InputRoot
 Copy-Item -LiteralPath 'python\multimin_backend' -Destination $PythonRoot -Recurse
 $Archive = Join-Path $ProjectRoot 'build\tools\python-3.14.0-embed-amd64.zip'
 if (-not (Test-Path -LiteralPath $Archive)) {

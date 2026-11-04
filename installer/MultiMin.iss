@@ -1,6 +1,6 @@
 #define AppName "MultiMini"
 #ifndef ReleaseVersion
-  #define ReleaseVersion "0.01"
+  #define ReleaseVersion "0.02"
 #endif
 #ifndef AppImageDir
   #define AppImageDir "..\build\internal\package\image\MultiMini"
@@ -19,7 +19,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 WizardStyle=modern
 UninstallDisplayIcon={app}\MultiMini.exe
-LicenseFile=..\LICENSE
+LicenseFile=..\TERMS.md
 DisableProgramGroupPage=yes
 Compression=lzma2/fast
 SolidCompression=yes

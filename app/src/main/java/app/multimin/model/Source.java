@@ -29,6 +29,7 @@ public final class Source {
     public boolean quickSwapInput;
     public Color controlColor = new Color(94, 153, 255);
     public String inputTarget = "";
+    public String windowProcess = "";
     public long nativeWindowHandle;
     public int displayDeviceIndex;
     /** Capture strategy for window sources: AUTO, WINDOW, or SCREEN. */
