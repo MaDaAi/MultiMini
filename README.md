@@ -15,7 +15,13 @@ MultiMini is a desktop multitasking utility for arranging display and applicatio
 
 MultiMini does not record video or stream. Capture is performed locally. WGC and input forwarding depend on Windows permissions and the target application's behavior.
 
-## Run the release JAR
+## Install on Windows
+
+Download `MultiMini-Setup-0.01-Windows-x64.exe` from GitHub Releases and run it. The installer bundles Java, Python, and the capture libraries. Users do not need to install those separately. Launch MultiMini from the Start menu or desktop shortcut. New views begin with no sources; use Add to choose your captures.
+
+The installer is currently unsigned. A clean Windows machine test is still recommended before public distribution. See [installer build instructions](docs/WINDOWS_INSTALLER.md).
+
+## Run the standalone JAR
 
 Install a Java 17 or newer runtime and Python 3.10 or newer. Download `MultiMini-Beta-0.01-Windows.jar` from the project's GitHub Releases page and start it with:
 

@@ -2,11 +2,11 @@
 
 Windows x64 beta release with native DWM window presentation for eligible single-monitor window-only multitask layouts, improved frame delivery, shared-memory transport, and sharper preview scaling.
 
-Download `MultiMini-Beta-0.01-Windows.jar`.
+Download `MultiMini-Setup-0.01-Windows-x64.exe`. Run the installer, then open MultiMini from the Start menu or desktop shortcut. Java, Python and capture libraries are bundled; no separate runtime installation is required.
 
 ## Requirements and launch
 
-Install Java 17 or newer and Python 3.10 or newer. WGC dependencies are listed in `python/requirements.txt` in the source repository. Install them with `py -3 -m pip install -r python/requirements.txt` from the downloaded source checkout.
+The standalone JAR remains available for development and requires Java 17 or newer and Python 3.10 or newer. The EXE installer bundles its own runtimes. New views start without sources.
 
 ```powershell
 java --enable-native-access=ALL-UNNAMED -Xmx2g -XX:G1HeapRegionSize=32m -jar .\MultiMini-Beta-0.01-Windows.jar
@@ -25,5 +25,5 @@ Game Capture remains hidden in this release. Development code is preserved. This
 - Test this exact JAR locally: window capture, display capture, click/drag/scroll/typing, Right Ctrl input switching, Pause layer switching, opacity, and End exit.
 - On GitHub create a release from commit `866a46d` with a new tag such as `v0.01-beta`.
 - Title: `MultiMini Beta 0.01 — Windows`.
-- Attach the JAR and `SHA256SUMS.txt` from `build/release`.
+- Attach the EXE and its `.sha256` file from `dist`.
 - Mark as a prerelease and review the notes before publishing.

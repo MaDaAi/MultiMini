@@ -9,6 +9,5 @@ public final class View {
 
     public View(String name) {
         this.name = name;
-        sources.addElement(new Source(name + " desktop", Source.Kind.DISPLAY));
     }
 }

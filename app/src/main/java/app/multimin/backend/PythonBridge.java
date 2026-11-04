@@ -182,10 +182,12 @@ public final class PythonBridge implements AutoCloseable {
 
     private static List<List<String>> pythonCommands() {
         List<List<String>> commands = new ArrayList<>();
+        Path source = pythonSourceDirectory();
+        Path bundledRuntime = source.resolve("runtime").resolve("python.exe");
+        if (Files.isRegularFile(bundledRuntime)) commands.add(List.of(bundledRuntime.toString(), "-m", "multimin_backend"));
         commands.add(List.of("python-backend.exe"));
         String configured = System.getenv("MULTIMIN_PYTHON");
         if (configured != null && !configured.isBlank()) commands.add(List.of(configured, "-m", "multimin_backend"));
-        Path source = pythonSourceDirectory();
         Path projectVenv = source.resolve(".venv").resolve("Scripts").resolve("python.exe");
         if (Files.isRegularFile(projectVenv)) commands.add(List.of(projectVenv.toString(), "-m", "multimin_backend"));
         Path localRuntimes = Path.of(System.getProperty("user.home"), "AppData", "Local", "Python");

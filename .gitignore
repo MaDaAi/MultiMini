@@ -1,4 +1,5 @@
 /build/
+/dist/
 /native/build/
 /python/.venv/
 /python/vendor/
