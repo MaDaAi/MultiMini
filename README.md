@@ -2,14 +2,14 @@
 
 MultiMini is a desktop multitasking utility for arranging display and application-window sources as layers, then viewing them together in a configurable overlay. It is built with Java/Swing and a Python helper for Windows capture and input routing.
 
-## Current release status
+## Beta 0.02 features
 
 - **Display Capture:** captures the desktop into a source layer.
 - **Window Capture:** lists visible windows and captures the selected window. Windows Graphics Capture (WGC) uses in-memory BGRA frame transfer; a BMP fallback remains available.
 - **Multitask mode:** overlays the composition and forwards input to the selected capture source using the configured hotkeys.
 - **Low-overhead window presentation:** eligible single-monitor window-only multitask layouts use Windows DWM thumbnails; unsupported or mixed layouts fall back to the regular preview pipeline.
 - **Images:** local image files can be added as sources.
-- **Temporary snapshots:** stored locally and cleaned up after seven days.
+- **Temporary snapshots:** stored locally; snapshots older than seven days are removed when cleanup runs.
 - **Game Capture:** not included in the release source menu. Experimental DX11 development code is retained under `native/` and is not needed to build or run the release.
 - **Platform support:** Windows is the supported platform. Linux capture and input support are not implemented.
 
@@ -17,23 +17,23 @@ MultiMini does not record video or stream. Capture is performed locally. WGC and
 
 ## Install on Windows
 
-Download `MultiMini-Setup-0.02-Windows-x64.exe` from GitHub Releases and run it. The installer bundles Java, Python, and the capture libraries. Users do not need to install those separately. Launch MultiMini from the Start menu or desktop shortcut. New views begin with no sources; use Add to choose your captures.
+Download `MultiMini-Setup-0.02-Windows-x64.exe` from [the Beta 0.02 release](https://github.com/MaDaAi/MultiMini/releases/tag/v0.02-beta) and run it. This repository is private: you must sign in to a GitHub account with access to download releases or open support issues. The installer bundles Java, Python, and the capture libraries. Users do not need to install those separately. Launch MultiMini from the Start menu or desktop shortcut. New views begin with no sources; use Add to choose your captures.
 
 The installer is currently unsigned. A clean Windows machine test is still recommended before public distribution. See [installer build instructions](docs/WINDOWS_INSTALLER.md).
 
-## Run the standalone JAR
+## Using MultiMini
 
-Install a Java 26 or newer runtime and Python 3.10 or newer. Download `MultiMini-Beta-0.01-Windows.jar` from the project's GitHub Releases page and start it with:
+Add sources to a view, arrange them in the preview, then start multitasking. Default shortcuts are **Right Ctrl** to switch the input target, **Pause** to swap visual layers, and **End** to leave multitask mode. These shortcuts can be changed in Settings. Use each source's mouse icon to include it in input switching.
 
-```powershell
-java --enable-native-access=ALL-UNNAMED -Xmx2g -XX:G1HeapRegionSize=32m -jar .\MultiMini-Beta-0.01-Windows.jar
-```
+Views, source order, transforms, opacity and control selections are saved automatically and on normal exit. Images require the original files to remain available. Window sources reconnect only to a unique title-and-process match; reselect a target if it is missing or ambiguous.
 
-Python dependencies for WGC and snapshots are listed in `python/requirements.txt`. Install them with `py -3 -m pip install -r python/requirements.txt` if those optional features are unavailable. Windows may request screen-capture permission.
+## Updating
+
+This private beta uses **manual updates**; in-app update checks are disabled. Download a newer installer through your authorized GitHub account, close MultiMini, and run the installer over the same installation. Workspaces and settings remain in your user-data folder. Back up that folder before an upgrade.
 
 ## Build from source
 
-Requirements: JDK 26+, Python 3.10+, and (for WGC/snapshot extras) the packages in `python/requirements.txt`.
+Requirements for developers: JDK 26+, Python 3.10+, and the packages in `python/requirements.txt` for WGC and snapshots. The installer already bundles these for end users.
 
 ```powershell
 .\scripts\build.ps1
@@ -46,12 +46,11 @@ Native C++/MSVC and the Windows SDK are not required to run the app. The optiona
 
 ## Settings and data
 
-Preferences and workspaces are stored in `%APPDATA%\MultiMin`, outside the installation, and survive updates. Snapshot cleanup removes snapshots older than seven days when the app runs its cleanup routine. MultiMini does not intentionally upload captured content. Optional update checks contact GitHub after user confirmation. Read the [Privacy Notice](PRIVACY.md) and [User Agreement](TERMS.md) for details.
+Preferences and workspaces are stored in `%APPDATA%\MultiMin`, outside the installation, and survive updates. Workspace saves include a `.bak` recovery file. Uninstalling preserves this folder. Snapshot cleanup removes snapshots older than seven days when the app runs its cleanup routine. MultiMini does not intentionally upload captured content. This build does not perform update checks. Read the [Privacy Notice](PRIVACY.md) and [User Agreement](TERMS.md) for details.
 
 ## Contributing and licensing
 
-Contributions and bug reports are welcome. The application is licensed under the [MIT License](LICENSE); third-party libraries retain their own terms. See [Terms of Service](TERMS.md) for use conditions. OBS terminology and workflow may be familiar, but MultiMini's implementation is independent and does not include OBS source code.
+Publisher: **Mansoor Alakoozai, Canada**. Collaborators with repository access can submit bug reports through [GitHub Issues](https://github.com/MaDaAi/MultiMini/issues). Do not post private captures or credentials. The application is licensed under the [MIT License](LICENSE); third-party libraries retain their own terms. See [Terms of Service](TERMS.md) for use conditions. OBS terminology and workflow may be familiar, but MultiMini's implementation is independent and does not include OBS source code.
 
 Workspace saving, optional GitHub updates and the agreement flow are described in [release review notes](docs/WORKSPACES_UPDATES_LEGAL.md).
 
-This beta keeps the repository private and uses manual updates. In-app update checks are disabled. Run a newer installer over the existing installation to keep local workspace data.
