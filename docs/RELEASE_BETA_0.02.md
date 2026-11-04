@@ -1,14 +1,24 @@
-# MultiMini Beta 0.02 — Windows
+# MultiMini Beta 0.02 — Windows x64
 
-Download MultiMini-Setup-0.02-Windows-x64.exe and its .sha256 file. Java, Python and capture libraries are bundled.
+Download **MultiMini-Setup-0.02-Windows-x64.exe** and the matching **.exe.sha256** checksum file below. Java, Python and capture libraries are bundled; no separate runtime installation is needed.
 
-- Saved views, sources, ordering, transforms, opacity and input selections survive restarts and updates. New workspaces remain empty of sources.
-- Image sources retain their file paths. Window sources reconnect to unique title-and-process matches; missing or ambiguous windows require reconfiguration.
-- Settings includes optional GitHub update checks. Newer packaged releases can be downloaded, verified and applied in place after saving and closing the app, with no manual reinstall wizard. Checks happen only when requested.
-- Versioned first-run agreement and privacy notice identify Mansoor Alakoozai, Canada, with support through GitHub Issues. Declining exits before capture starts.
+## Included
+- Window Capture, Display Capture, image sources and layered multitasking.
+- Native DWM presentation for eligible single-monitor window-only layouts, with capture fallback.
+- Saved views, source order, transforms, opacity and control selections. New workspaces start without sources.
+- Image file references and safe window reconnection by unique title/process; missing or ambiguous targets require reselection.
+- Versioned first-run user agreement and privacy notice, with publisher Mansoor Alakoozai, Canada.
+- Manual updates that preserve the user-data folder. Public in-app update checks are disabled for this private beta.
+- Experimental Game Capture remains disabled in the release build.
 
-Tests passed: workspace roundtrip and backup recovery; simulated update discovery/download, version guards and rejected foreign sources/paths; 34 existing Python capture/input tests. End-to-end installation of a live published update and clean-machine GUI validation remain unverified. Legal documents are drafts for professional review and cannot guarantee immunity from claims. The installer is unsigned.
+## Installation and upgrades
+Run the EXE, then launch MultiMini from the Start menu or desktop shortcut. For upgrades, close the app and install into the existing location. Workspace and settings files stay in `%APPDATA%\\MultiMin`; back them up before upgrading.
 
-Publish as a prerelease with tag v0.02-beta. Upload the EXE and matching .sha256 asset; keep both filenames unchanged for updater compatibility. Increment the numeric version on subsequent releases.
+Defaults: Right Ctrl switches input, Pause swaps visual layers, and End exits multitask mode. Change shortcuts in Settings.
 
-Current distribution choice: private repository, manual updates. The in-app updater is disabled by the build flag; Settings provides manual update guidance. Public GitHub publication is not authorized.
+## Beta limitations and verification
+The installer is unsigned, so Windows may display a publisher warning. A clean Windows installation test remains outstanding. Native presentation is limited to eligible layouts; no fixed FPS or latency is guaranteed. Legal documents are drafts for professional review.
+
+Both builds compile. All 34 existing Python capture/input tests pass, as do workspace roundtrip/backup recovery tests and simulated updater discovery, checksum and rejection checks. An end-to-end live update installation is unverified.
+
+This repository and release remain private; downloads and support issues require repository access.
