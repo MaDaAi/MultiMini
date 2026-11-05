@@ -146,10 +146,10 @@ extern "C" JNIEXPORT void JNICALL Java_app_multimin_backend_NativeWindowComposit
     Microsoft::WRL::ComPtr<IPropertyStore> store;
     if(FAILED(SHGetPropertyStoreForWindow(hwnd,IID_PPV_ARGS(&store))))return;
     auto set=[&](const PROPERTYKEY& key,const wchar_t* value){PROPVARIANT v;PropVariantInit(&v);if(SUCCEEDED(InitPropVariantFromString(value,&v))){store->SetValue(key,v);PropVariantClear(&v);}};
-    set(PKEY_AppUserModel_ID,L"MaDaAi.MultiMini");
     const jchar* path=env->GetStringChars(icon,nullptr);if(!path)return;
     set(PKEY_AppUserModel_RelaunchIconResource,reinterpret_cast<const wchar_t*>(path));env->ReleaseStringChars(icon,path);
     const jchar* launch=env->GetStringChars(command,nullptr);if(!launch)return;
     set(PKEY_AppUserModel_RelaunchCommand,reinterpret_cast<const wchar_t*>(launch));env->ReleaseStringChars(command,launch);
-    set(PKEY_AppUserModel_RelaunchDisplayNameResource,L"MultiMini");store->Commit();
+    set(PKEY_AppUserModel_RelaunchDisplayNameResource,L"MultiMini");
+    set(PKEY_AppUserModel_ID,L"MaDaAi.MultiMini");store->Commit();
 }

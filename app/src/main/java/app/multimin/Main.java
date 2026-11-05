@@ -59,6 +59,7 @@ public final class Main {
             MainWindow window = new MainWindow(backend);
             window.setVisible(true);
             app.multimin.ui.WindowBranding.apply(window);
+            javax.swing.Timer brandingRetry=new javax.swing.Timer(300,event->app.multimin.ui.WindowBranding.apply(window));brandingRetry.setRepeats(false);brandingRetry.start();
             backend.start(window::setBackendStatus);
             window.checkForUpdatesOnLaunch();
         });
