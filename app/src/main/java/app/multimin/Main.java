@@ -52,11 +52,13 @@ public final class Main {
         UIManager.put("ScrollBar.background", new java.awt.Color(35, 39, 48));
         UIManager.put("ScrollBar.thumb", new java.awt.Color(82, 90, 105));
 
+        try { if(app.multimin.backend.NativeWindowCompositor.available())app.multimin.backend.NativeWindowCompositor.initializeIdentity(); } catch(LinkageError ignored) {}
         SwingUtilities.invokeLater(() -> {
             if (!app.multimin.ui.LegalConsent.ensureAccepted()) return;
             PythonBridge backend = new PythonBridge();
             MainWindow window = new MainWindow(backend);
             window.setVisible(true);
+            app.multimin.ui.WindowBranding.apply(window);
             backend.start(window::setBackendStatus);
         });
     }

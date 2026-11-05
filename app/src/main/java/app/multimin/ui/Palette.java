@@ -15,8 +15,7 @@ public final class Palette {
     public Color controlSurface() { return new Color(panelRaised.getRed(), panelRaised.getGreen(), panelRaised.getBlue()); }
 
     public Color selectionText() {
-        return accent.getRed() == 255 && accent.getGreen() == 255 && accent.getBlue() == 255
-            ? Color.BLACK : Color.WHITE;
+        return contrastText(accent);
     }
 
     public static Color contrastText(Color background) {

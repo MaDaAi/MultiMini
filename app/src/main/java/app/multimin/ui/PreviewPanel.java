@@ -24,6 +24,19 @@ public final class PreviewPanel extends JPanel {
     private boolean shiftFreeResize;
     private Point dragStart;
     private int startX, startY, startScale;
+    private int snapX=-1,snapY=-1,guideX=-1,guideY=-1;
+    private final Timer guideTimer=new Timer(500,e->{guideX=guideY=-1;repaint();});
+    private int snapPosition(int position,int size,boolean horizontal,Source moving){
+        int best=position,line=-1;double distance=7.0;
+        java.util.List<Integer> targets=new java.util.ArrayList<>();
+        int origin=horizontal?canvas.x:canvas.y,extent=horizontal?canvas.width:canvas.height;
+        targets.add(origin);targets.add(origin+extent/2);targets.add(origin+extent);
+        for(int i=0;i<view.sources.size();i++){Source other=view.sources.get(i);if(other==moving||!other.visible)continue;Rectangle r=boundsFor(other);int edge=horizontal?r.x:r.y,length=horizontal?r.width:r.height;targets.add(edge);targets.add(edge+length/2);targets.add(edge+length);}
+        for(int target:targets)for(int offset:new int[]{0,size/2,size}){double delta=Math.abs(target-(position+offset));if(delta<distance){distance=delta;best=target-offset;line=target;}}
+        int previous=horizontal?snapX:snapY;if(horizontal)snapX=line;else snapY=line;
+        if(line!=previous){if(horizontal)guideX=line;else guideY=line;if(line>=0){guideTimer.setRepeats(false);guideTimer.restart();}}
+        return best;
+    }
     private boolean locked;
     private boolean nativePresentationAllowed = true;
     public void setNativePresentationAllowed(boolean allowed) {
@@ -50,7 +63,7 @@ public final class PreviewPanel extends JPanel {
         addMouseMotionListener(interaction);
     }
 
-    public void setView(View view) { windowSurfaces.reset(); this.view = view; frameTextures.retain(view.sources); selectedIndex = Math.min(1, view.sources.size() - 1); repaint(); }
+    public void setView(View view) { guideTimer.stop();snapX=snapY=guideX=guideY=-1; windowSurfaces.reset(); this.view = view; frameTextures.retain(view.sources); selectedIndex = Math.min(1, view.sources.size() - 1); repaint(); }
     public Rectangle sourceBoundsInPanel(int index) {
         if (index < 0 || index >= view.sources.size()) return new Rectangle();
         if (locked) canvas = new Rectangle(0, 0, getWidth(), getHeight());
@@ -84,7 +97,7 @@ public final class PreviewPanel extends JPanel {
     public double getMeasuredFps() { return measuredFps; }
     public double getLastPaintMillis() { return lastPaintMillis; }
     public int getAcceleratedSourceCount() { return frameTextures.countAcceleratedSources(); }
-    @Override public void removeNotify() { windowSurfaces.close(); frameTextures.close(); super.removeNotify(); }
+    @Override public void removeNotify() { guideTimer.stop();guideX=guideY=snapX=snapY=-1; windowSurfaces.close(); frameTextures.close(); super.removeNotify(); }
     public void setLocked(boolean locked) { if(!locked)windowSurfaces.reset(); this.locked = locked; setOpaque(!locked); dragStart = null; resizing = false; setCursor(Cursor.getDefaultCursor()); repaint(); }
     public void refreshNativePresentation() {
         if(!locked || !nativePresentationAllowed)return;
@@ -127,6 +140,7 @@ public final class PreviewPanel extends JPanel {
     }
 
     private void beginInteraction(MouseEvent event) {
+        guideTimer.stop();guideX=guideY=snapX=snapY=-1;
         if (locked) return;
         if (SwingUtilities.isRightMouseButton(event)) { showTransformMenu(event); return; }
         if (selectedIndex >= 0 && selectedIndex < view.sources.size()) {
@@ -232,8 +246,12 @@ public final class PreviewPanel extends JPanel {
             }
         } else if (dragging) {
             Rectangle bounds = boundsFor(source);
-            source.x = Math.max(0, Math.min(100, startX + dx * 100 / Math.max(1, canvas.width - bounds.width)));
-            source.y = Math.max(0, Math.min(100, startY + dy * 100 / Math.max(1, canvas.height - bounds.height)));
+            int availableX=canvas.width-bounds.width,availableY=canvas.height-bounds.height;
+            int px=canvas.x+availableX*startX/100+dx,py=canvas.y+availableY*startY/100+dy;
+            if(!event.isAltDown()){px=snapPosition(px,bounds.width,true,source);py=snapPosition(py,bounds.height,false,source);}
+            else {snapX=snapY=guideX=guideY=-1;}
+            source.x=availableX==0?0:Math.clamp((int)Math.round((px-canvas.x)*100.0/availableX),0,100);
+            source.y=availableY==0?0:Math.clamp((int)Math.round((py-canvas.y)*100.0/availableY),0,100);
         }
         changeListener.run();
         repaint();
@@ -266,12 +284,11 @@ public final class PreviewPanel extends JPanel {
         layers.dispose();
 
         if (!locked) {
-            g.setColor(new Color(palette.accent.getRed(), palette.accent.getGreen(), palette.accent.getBlue(), 105));
-            g.fillRoundRect(x + width - 17, y, 17, 17, 0, 8);
             g.setColor(new Color(210, 216, 225));
             g.setStroke(new BasicStroke(1.5f));
             g.drawRect(x, y, width - 1, height - 1);
         }
+        if(!locked&&(guideX>=0||guideY>=0)){g.setColor(palette.accent);g.setStroke(new BasicStroke(1f));if(guideX>=0)g.drawLine(guideX,canvas.y,guideX,canvas.y+canvas.height);if(guideY>=0)g.drawLine(canvas.x,guideY,canvas.x+canvas.width,guideY);}
         g.dispose();
         lastPaintMillis = (System.nanoTime() - paintStarted) / 1_000_000.0;
         long presented = System.nanoTime();

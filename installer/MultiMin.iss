@@ -36,8 +36,8 @@ SolidCompression=yes
 [Files]
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
-Name: "{group}\MultiMini"; Filename: "{app}\MultiMini.exe"; WorkingDir: "{app}"; IconFilename: "{app}\MultiMini.exe"
-Name: "{autodesktop}\MultiMini"; Filename: "{app}\MultiMini.exe"; WorkingDir: "{app}"; IconFilename: "{app}\MultiMini.exe"; Tasks: desktopicon
+Name: "{group}\MultiMini"; Filename: "{app}\MultiMini.exe"; WorkingDir: "{app}"; AppUserModelID: "MaDaAi.MultiMini"; IconFilename: "{app}\MultiMini.exe"
+Name: "{autodesktop}\MultiMini"; Filename: "{app}\MultiMini.exe"; WorkingDir: "{app}"; AppUserModelID: "MaDaAi.MultiMini"; IconFilename: "{app}\MultiMini.exe"; Tasks: desktopicon
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 [Run]

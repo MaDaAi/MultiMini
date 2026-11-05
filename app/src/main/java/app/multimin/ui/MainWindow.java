@@ -160,7 +160,7 @@ public final class MainWindow extends JFrame {
     public MainWindow(PythonBridge backend) {
         super(Boolean.getBoolean("multimin.dev.gameCapture") ? "MultiMini Experimental" : "MultiMini");
         this.backend = backend;
-        try { appLogo = new LogoIcon(36); setIconImages(List.of(new LogoIcon(16).toImage(), new LogoIcon(32).toImage(), new LogoIcon(64).toImage(), new LogoIcon(256).toImage())); }
+        try { appLogo = new LogoIcon(36); setIconImages(List.of(new LogoIcon(16).toImage(), new LogoIcon(32).toImage(), new LogoIcon(64).toImage(), new LogoIcon(256).toImage())); if(Taskbar.isTaskbarSupported()&&Taskbar.getTaskbar().isSupported(Taskbar.Feature.ICON_IMAGE))Taskbar.getTaskbar().setIconImage(new LogoIcon(256).toImage()); }
         catch (Exception ignored) { appLogo = null; }
         Path frameDirectory;
         try { frameDirectory = Files.createTempDirectory("multimin-window-frames-"); }
@@ -182,7 +182,9 @@ public final class MainWindow extends JFrame {
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         Rectangle usable = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         setMinimumSize(new Dimension(520, 420)); setSize(Math.min(1180, usable.width - 60), Math.min(740, usable.height - 60)); setLocationRelativeTo(null); setExtendedState(JFrame.MAXIMIZED_BOTH);
-        buildUi();
+        if("Light".equals(preferences.getString("themeMode","Dark")))palette.light();
+        applyUiDefaults();LegalConsent.setPalette(palette);
+        buildUi();refreshTheme();
         bindShortcuts();
         backend.setQuickSwapHandler(event -> SwingUtilities.invokeLater(() -> {
             if ("screenshot_full".equals(event) && multitask) captureMultitaskScreenshot(false);
@@ -294,7 +296,7 @@ public final class MainWindow extends JFrame {
         JLabel brand = new JLabel("MultiMini"); brand.setFont(brand.getFont().deriveFont(Font.BOLD, 15f));
         if (appLogo != null) { brand.setIcon(appLogo); brand.setIconTextGap(10); }
         topBar.add(brand); topBar.add(Box.createHorizontalStrut(25));
-        for (View view : views) { JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); viewButtons.put(view, tab); topBar.add(tab); }
+        for (View view : views) { JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); installViewMenu(tab,view); viewButtons.put(view, tab); topBar.add(tab); }
         JButton addView = quietButton("＋"); addView.addActionListener(event -> addView()); topBar.add(addView); topBar.add(Box.createHorizontalGlue());
         sourcesPanelRef = sourcesPanel(); propertiesPanelRef = propertiesPanel();
         configuration.add(new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
@@ -348,11 +350,29 @@ public final class MainWindow extends JFrame {
     }
 
     private JPanel centerPanel() {
-        canvasPanel.setOpaque(false); JPanel toolbar = transparent(new BorderLayout()); toolbar.setBorder(new EmptyBorder(15, 22, 8, 22)); JLabel title = new JLabel("PREVIEW   ·   current composition"); title.setForeground(palette.muted); toolbar.add(title); canvasPanel.add(toolbar, BorderLayout.NORTH); canvasPanel.add(preview, BorderLayout.CENTER); backendStatus.setForeground(palette.muted); backendStatus.setBorder(new EmptyBorder(6, 22, 2, 22)); performanceStatus.setForeground(palette.muted); performanceStatus.setFont(performanceStatus.getFont().deriveFont(10f)); performanceStatus.setBorder(new EmptyBorder(0, 22, 7, 22)); debugPanel.setOpaque(false); debugPanel.add(backendStatus); debugPanel.add(performanceStatus); debugPanel.setVisible(preferences.getBoolean("showDebug", preferences.getBoolean("showPerformanceStats", false))); performanceStatus.setVisible(debugPanel.isVisible()); canvasPanel.add(debugPanel, BorderLayout.SOUTH); return canvasPanel;
+        canvasPanel.setMinimumSize(new Dimension(100,0));canvasPanel.setOpaque(false); JPanel toolbar = transparent(new BorderLayout()); toolbar.setBorder(new EmptyBorder(15, 22, 8, 22)); JLabel title = new JLabel("PREVIEW   ·   current composition"); title.setForeground(palette.muted); toolbar.add(title); canvasPanel.add(toolbar, BorderLayout.NORTH); canvasPanel.add(preview, BorderLayout.CENTER); backendStatus.setForeground(palette.muted); backendStatus.setBorder(new EmptyBorder(6, 22, 2, 22)); performanceStatus.setForeground(palette.muted); performanceStatus.setFont(performanceStatus.getFont().deriveFont(10f)); performanceStatus.setBorder(new EmptyBorder(0, 22, 7, 22)); debugPanel.setOpaque(false); debugPanel.add(backendStatus); debugPanel.add(performanceStatus); debugPanel.setVisible(preferences.getBoolean("showDebug", preferences.getBoolean("showPerformanceStats", false))); performanceStatus.setVisible(debugPanel.isVisible()); canvasPanel.add(debugPanel, BorderLayout.SOUTH); return canvasPanel;
     }
 
+    private JSplitPane sidebarOuter,sidebarInner;
+    private boolean sidebarWidthsRestored;
+    private javax.swing.Timer sidebarWidthSaveTimer;
+    @Override public void setVisible(boolean visible){super.setVisible(visible);if(visible&&sidebarOuter!=null)restoreSidebarWidths();}
+    private void saveSidebarWidths(){
+        if(!sidebarWidthsRestored||sidebarOuter==null||!configuration.isShowing())return;
+        int left=sidebarInner.getDividerLocation(),right=sidebarOuter.getWidth()-sidebarOuter.getDividerLocation()-sidebarOuter.getDividerSize();
+        if(left>=70&&right>=70){if(preferences.getInt("leftPanelWidth",-1)!=left)preferences.putInt("leftPanelWidth",left);if(preferences.getInt("rightPanelWidth",-1)!=right)preferences.putInt("rightPanelWidth",right);}
+    }
+    private void restoreSidebarWidths(){
+        if(sidebarWidthsRestored||sidebarOuter.getWidth()<250||!configuration.isShowing())return;
+        int right=Math.clamp(preferences.getInt("rightPanelWidth",300),70,Math.max(70,sidebarOuter.getWidth()-180));
+        sidebarOuter.setDividerLocation(sidebarOuter.getWidth()-right-sidebarOuter.getDividerSize());sidebarOuter.doLayout();
+        int left=Math.clamp(preferences.getInt("leftPanelWidth",265),70,Math.max(70,sidebarInner.getWidth()-110));sidebarInner.setDividerLocation(left);sidebarInner.doLayout();sidebarWidthsRestored=true;
+    }
     private void configureSplitters(JSplitPane outer) {
-        JSplitPane inner = (JSplitPane) outer.getLeftComponent();
+        JSplitPane inner = (JSplitPane) outer.getLeftComponent();sidebarOuter=outer;sidebarInner=inner;
+        sidebarWidthSaveTimer=new javax.swing.Timer(350,event->saveSidebarWidths());sidebarWidthSaveTimer.setRepeats(false);
+        java.beans.PropertyChangeListener widthChanged=event->{if(sidebarWidthsRestored&&configuration.isShowing())sidebarWidthSaveTimer.restart();};inner.addPropertyChangeListener("dividerLocation",widthChanged);outer.addPropertyChangeListener("dividerLocation",widthChanged);
+        configuration.addHierarchyListener(event->{if((event.getChangeFlags()&java.awt.event.HierarchyEvent.SHOWING_CHANGED)!=0&&configuration.isShowing())SwingUtilities.invokeLater(this::restoreSidebarWidths);});
         for (JSplitPane split : List.of(inner, outer)) {
             split.setContinuousLayout(true); split.setOneTouchExpandable(false); split.setBorder(null);
             split.setDividerSize(4); split.setResizeWeight(split == inner ? 0.0 : 1.0);
@@ -593,16 +613,23 @@ public final class MainWindow extends JFrame {
             if (inputNoticeTimer != null) inputNoticeTimer.restart();
         }
     }
-    private void addView() { String name = promptText("New view", "View name:", ""); if (name != null && !name.trim().isEmpty()) { View view = new View(name.trim()); views.add(view); JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); topBar.add(tab, 2 + viewButtons.size()); viewButtons.put(view, tab); topBar.revalidate(); switchView(view); } }
+    private void installViewMenu(JButton tab,View view){
+        JPopupMenu menu=new JPopupMenu();JMenuItem rename=new JMenuItem("Rename view"),duplicate=new JMenuItem("Duplicate view"),delete=new JMenuItem("Delete view");menu.add(rename);menu.add(duplicate);menu.addSeparator();menu.add(delete);ModernUi.popup(menu,palette);tab.setComponentPopupMenu(menu);
+        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener(){public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e){delete.setEnabled(views.size()>1&&!multitask);rename.setEnabled(!multitask);duplicate.setEnabled(!multitask);}public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e){}public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e){}});
+        rename.addActionListener(e->{String name=promptText("Rename view","View name:",view.name);if(name!=null&&!name.isBlank()){view.name=name.trim();tab.setText(view.name);if(activeView==view)viewTitle.setText(view.name);saveWorkspace();}});
+        duplicate.addActionListener(e->{if(multitask)return;switchView(view);View copy=new View(view.name+" copy");List<Source> originals=java.util.Collections.list(view.sources.elements());for(Source original:originals){sourceList.setSelectedValue(original,true);duplicateSelected();Source clone=sourceList.getSelectedValue();view.sources.removeElement(clone);clone.x=original.x;clone.y=original.y;clone.displayDeviceIndex=original.displayDeviceIndex;clone.controlColor=original.controlColor;copy.sources.addElement(clone);}copy.controlSource=Math.max(0,Math.min(view.controlSource,copy.sources.size()-1));views.add(copy);JButton button=quietButton(copy.name);button.addActionListener(a->switchView(copy));installViewMenu(button,copy);topBar.add(button,2+viewButtons.size());viewButtons.put(copy,button);topBar.revalidate();switchView(copy);saveWorkspace();});
+        delete.addActionListener(e->{if(multitask||views.size()<2)return;switchView(view);while(!view.sources.isEmpty()){sourceList.setSelectedIndex(0);removeSelected();}views.remove(view);topBar.remove(tab);viewButtons.remove(view);switchView(views.get(0));topBar.revalidate();topBar.repaint();saveWorkspace();});
+    }
+    private void addView() { String name = promptText("New view", "View name:", ""); if (name != null && !name.trim().isEmpty()) { View view = new View(name.trim()); views.add(view); JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); installViewMenu(tab,view); topBar.add(tab, 2 + viewButtons.size()); viewButtons.put(view, tab); topBar.revalidate(); switchView(view); } }
     private void addSource() {
         Source.Kind kind = chooseSourceKind();
         if (kind == null) return;
         boolean nativeTest = false;
         if (kind == Source.Kind.GAME) {
             Object mode = JOptionPane.showInputDialog(this,
-                "Choose a backend. WGC captures game windows without graphics hooks.\nProtected or exclusive fullscreen games may be unsupported.",
+                "Choose a backend. WGC captures game windows without graphics hooks.\nProtected or exclusive fullscreen games may be unsupported.\nThe controlled DX11 renderer is for testing purposes only.",
                 "Experimental game capture", JOptionPane.QUESTION_MESSAGE, null,
-                new String[]{"Game window — WGC compatibility", "Controlled DX11 test renderer"},
+                new String[]{"Game window — WGC compatibility", "Controlled DX11 renderer — testing only"},
                 "Game window — WGC compatibility");
             if (mode == null) return;
             nativeTest = mode.toString().startsWith("Controlled");
@@ -885,6 +912,7 @@ public final class MainWindow extends JFrame {
         JComboBox<String> stagedAccent = new JComboBox<>(new String[]{"Blue", "Red", "Orange", "Yellow", "Green", "Purple", "White", "Black", "Custom…"});
         styleCombo(stagedAccent); stagedAccent.setFocusable(false); stagedAccent.setSelectedItem(accentMode.getSelectedItem());
         stagedAccent.setPreferredSize(new Dimension(150, 30));
+        JComboBox<String> themeChoice=new JComboBox<>(new String[]{"Dark","Light"});styleCombo(themeChoice);themeChoice.setSelectedItem(preferences.getString("themeMode","Dark"));fields.add(settingsRow("Theme","Application appearance",themeChoice));
         fields.add(settingsRow("Accent colour", "Highlights and active controls", stagedAccent));
         fields = settingsPage(); JScrollPane controlsScroll=new JScrollPane(fields);controlsScroll.setBorder(null);controlsScroll.getViewport().setOpaque(false);controlsScroll.setOpaque(false);controlsScroll.getVerticalScrollBar().setUnitIncrement(20);styleScrollBar(controlsScroll.getVerticalScrollBar());tabs.addTab("Controls", controlsScroll);
         fields.add(settingsGroup("Keyboard shortcuts"));
@@ -922,6 +950,7 @@ public final class MainWindow extends JFrame {
             swapKeyBinding = stagedSwapKeyBinding; layerSwapKeyBinding = stagedLayerSwapKeyBinding; stopKeyBinding = stagedStopKeyBinding;
             preferences.putString("swapInputKey", swapKeyBinding); preferences.putString("swapLayersKey", layerSwapKeyBinding); preferences.putString("stopKey", stopKeyBinding);
             updateHotkeyHints();
+            String theme=String.valueOf(themeChoice.getSelectedItem());preferences.putString("themeMode",theme);if("Light".equals(theme))palette.light();else palette.dark();LegalConsent.setPalette(palette);
             accentMode.setSelectedItem(stagedAccent.getSelectedItem()); applyAccent();
             revealCornerIndex = corner.getSelectedIndex();
             preferences.putInt("revealCorner", revealCornerIndex);
@@ -1009,8 +1038,19 @@ public final class MainWindow extends JFrame {
         return true;
     }
     private void applyAccent() { String name = String.valueOf(accentMode.getSelectedItem()); Color color; if ("Red".equals(name)) color = new Color(235, 82, 86); else if ("Orange".equals(name)) color = new Color(241, 145, 64); else if ("Yellow".equals(name)) color = new Color(239, 205, 76); else if ("Green".equals(name)) color = new Color(83, 190, 123); else if ("Purple".equals(name)) color = new Color(161, 111, 224); else if ("White".equals(name)) color = Color.WHITE; else if ("Black".equals(name)) color = new Color(20, 22, 25); else if ("Custom…".equals(name)) color = JColorChooser.showDialog(this, "Choose accent colour", palette.accent); else color = new Color(103, 153, 255); if (color != null) palette.accent = color; refreshTheme(); }
-    private void refreshTheme() { if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); SwingUtilities.updateComponentTreeUI(this); opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
+    private void refreshTheme() { if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); retheme(this); for(Window owned:getOwnedWindows()){retheme(owned);owned.repaint();} opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
+    private void retheme(Component component){
+        Palette dark=new Palette(),light=new Palette();light.light();Color fg=component.getForeground(),bg=component.getBackground();
+        if(component instanceof JLabel || component instanceof javax.swing.text.JTextComponent || component instanceof JCheckBox || component instanceof JRadioButton || component instanceof AbstractButton){component.setForeground(fg!=null&&(fg.equals(dark.muted)||fg.equals(light.muted))?palette.muted:palette.text);}
+        if(bg!=null&&(bg.equals(dark.background)||bg.equals(light.background)||bg.equals(dark.primary)||bg.equals(light.primary)))component.setBackground(palette.background);
+        if(bg!=null&&(bg.equals(dark.panel)||bg.equals(light.panel)||bg.equals(dark.panelRaised)||bg.equals(light.panelRaised)||bg.equals(dark.controlSurface())||bg.equals(light.controlSurface())))component.setBackground(palette.controlSurface());
+        if(component instanceof JComboBox<?> || component instanceof JTabbedPane || component instanceof JMenuItem){component.setForeground(palette.text);component.setBackground(palette.controlSurface());}
+        if(component instanceof javax.swing.text.JTextComponent text){if(text.isOpaque())text.setBackground(palette.controlSurface());text.setCaretColor(palette.text);text.setSelectionColor(palette.accent);text.setSelectedTextColor(palette.selectionText());}
+        if(component instanceof Container container)for(Component child:container.getComponents())retheme(child);
+    }
     private void applyUiDefaults() {
+        for(String type:new String[]{"Menu","MenuItem","PopupMenu","TabbedPane","TextArea","TextPane","EditorPane"}){UIManager.put(type+".background",palette.controlSurface());UIManager.put(type+".foreground",palette.text);UIManager.put(type+".selectionBackground",palette.accent);UIManager.put(type+".selectionForeground",palette.selectionText());}
+
         UIManager.put("ToolTip.background",palette.controlSurface()); UIManager.put("ToolTip.foreground",palette.text); UIManager.put("ToolTip.border",BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(5,8,5,8))); UIManager.put("ToolTip.font",new Font(Font.DIALOG,Font.PLAIN,12));
         UIManager.put("Panel.background", palette.background); UIManager.put("Label.foreground", palette.text);
         UIManager.put("Button.background", palette.panelRaised); UIManager.put("Button.foreground", palette.text); UIManager.put("Button.select", palette.accent.darker());
@@ -1344,6 +1384,7 @@ public final class MainWindow extends JFrame {
     }
 
     private synchronized void shutdownServices() {
+        if(sidebarWidthSaveTimer!=null)sidebarWidthSaveTimer.stop();saveSidebarWidths();
         shuttingDown=true;if(screenshotSelection!=null)screenshotSelection.dispose();if(multitask){backend.setMultitaskOverlay(false,false,stopKeyBinding);multitask=false;}if(multitaskControls!=null)multitaskControls.dispose();if(multitaskWindow!=null)multitaskWindow.dispose();backend.setSnapshotHandler(ignored -> {});
         if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();if(snapshotTimeout!=null)snapshotTimeout.stop();if(gallery!=null)gallery.dispose();
         if (workspaceTimer != null) workspaceTimer.stop();
@@ -1370,6 +1411,7 @@ public final class MainWindow extends JFrame {
     }
 
     private void saveWorkspace() {
+        saveSidebarWidths();
         if (!workspaceWritable) return;
         try { workspaceStore.save(views, activeView); }
         catch (java.io.IOException error) { backendStatus.setText("Workspace save failed: " + error.getMessage()); }
@@ -1417,9 +1459,9 @@ public final class MainWindow extends JFrame {
 
     private JDialog dialog(String title) { JDialog dialog = new JDialog(this, title, true); dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE); dialog.getContentPane().setBackground(palette.background); return dialog; }
     private JPanel dialogBody() { JPanel body = new GlassPanel(palette); body.setLayout(new BorderLayout(12, 16)); body.setBorder(new EmptyBorder(18, 18, 14, 18)); return body; }
-    private JButton quietButton(String text) { Icon icon = null; String label = text; if ("＋".equals(text)) { icon = new VectorIcon(VectorIcon.Type.ADD, 12, palette.text); label = ""; } else if ("Snapshot".equals(text)) icon = new VectorIcon(VectorIcon.Type.CAMERA, 13, palette.text); return new ModernButton(label, icon, palette, false); }
+    private JButton quietButton(String text) { Icon icon = null; String label = text; if ("＋".equals(text)) { icon = new VectorIcon(VectorIcon.Type.ADD, 12, ()->palette.text); label = ""; } else if ("Snapshot".equals(text)) icon = new VectorIcon(VectorIcon.Type.CAMERA, 13, ()->palette.text); return new ModernButton(label, icon, palette, false); }
     private JButton primaryButton(String text) { Icon icon = text.contains("Add") ? new VectorIcon(VectorIcon.Type.ADD, 12, palette::selectionText) : text.contains("multitasking") ? new VectorIcon(VectorIcon.Type.PLAY, 12, palette::selectionText) : null; return new ModernButton(text.replace("＋ ", ""), icon, palette, true); }
-    private JButton toolButton(String text, String tooltip) { VectorIcon.Type type = null; if ("＋".equals(text)) type = VectorIcon.Type.ADD; else if ("−".equals(text)) type = VectorIcon.Type.REMOVE; else if ("⧉".equals(text)) type = VectorIcon.Type.COPY; else if ("◉".equals(text)) type = VectorIcon.Type.EYE; else if ("↑".equals(text)) type = VectorIcon.Type.UP; else if ("↓".equals(text)) type = VectorIcon.Type.DOWN; Icon icon = type == null ? null : new VectorIcon(type, 13, palette.text); ModernButton button = new ModernButton(type == null ? text : "", icon, palette, false); button.setToolTipText(tooltip); return button; }
+    private JButton toolButton(String text, String tooltip) { VectorIcon.Type type = null; if ("＋".equals(text)) type = VectorIcon.Type.ADD; else if ("−".equals(text)) type = VectorIcon.Type.REMOVE; else if ("⧉".equals(text)) type = VectorIcon.Type.COPY; else if ("◉".equals(text)) type = VectorIcon.Type.EYE; else if ("↑".equals(text)) type = VectorIcon.Type.UP; else if ("↓".equals(text)) type = VectorIcon.Type.DOWN; Icon icon = type == null ? null : new VectorIcon(type, 13, ()->palette.text); ModernButton button = new ModernButton(type == null ? text : "", icon, palette, false); button.setToolTipText(tooltip); return button; }
     private JLabel centeredSection(String text) { JLabel label=sectionTitle(text); label.setHorizontalAlignment(SwingConstants.CENTER); label.setMaximumSize(new Dimension(Integer.MAX_VALUE,38)); label.setAlignmentX(Component.CENTER_ALIGNMENT); return label; }
     private JLabel sectionTitle(String text) { JLabel label = muted(text); label.setBorder(new EmptyBorder(8, 0, 7, 0)); return label; }
     private JLabel propertyLabel(String text) { JLabel label = new JLabel(text); label.setForeground(palette.text); return label; }

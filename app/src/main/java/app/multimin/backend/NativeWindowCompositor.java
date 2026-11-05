@@ -5,6 +5,8 @@ public final class NativeWindowCompositor {
     private static final boolean LOADED = SharedFrameBridge.AVAILABLE;
     private NativeWindowCompositor() {}
     public static boolean available() { return LOADED; }
+    public static native void initializeIdentity();
+    public static native void windowIdentity(long window,String icon,String command);
     public static native int captureAffinity(long window,int affinity);
     public static native long destination(int x,int y,int width,int height);
     public static native long register(long destination,long source);

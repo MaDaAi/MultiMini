@@ -6,6 +6,11 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <dwmapi.h>
+#include <shobjidl.h>
+#include <propkey.h>
+#include <propvarutil.h>
+#pragma comment(lib, "propsys.lib")
+#pragma comment(lib, "shell32.lib")
 
 struct Mapping { HANDLE handle; const void* pixels; jint bytes; };
 
@@ -129,4 +134,22 @@ extern "C" JNIEXPORT jint JNICALL Java_app_multimin_backend_NativeWindowComposit
     if(process!=GetCurrentProcessId() || !GetWindowDisplayAffinity(hwnd,&previous))return -1;
     if(!SetWindowDisplayAffinity(hwnd,static_cast<DWORD>(affinity)))return -1;
     DwmFlush();return static_cast<jint>(previous);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_app_multimin_backend_NativeWindowCompositor_initializeIdentity
+ (JNIEnv*,jclass) { SetCurrentProcessExplicitAppUserModelID(L"MaDaAi.MultiMini"); }
+
+extern "C" JNIEXPORT void JNICALL Java_app_multimin_backend_NativeWindowCompositor_windowIdentity
+ (JNIEnv* env,jclass,jlong window,jstring icon,jstring command) {
+    HWND hwnd=reinterpret_cast<HWND>(window);DWORD process=0;GetWindowThreadProcessId(hwnd,&process);
+    if(process!=GetCurrentProcessId())return;
+    Microsoft::WRL::ComPtr<IPropertyStore> store;
+    if(FAILED(SHGetPropertyStoreForWindow(hwnd,IID_PPV_ARGS(&store))))return;
+    auto set=[&](const PROPERTYKEY& key,const wchar_t* value){PROPVARIANT v;PropVariantInit(&v);if(SUCCEEDED(InitPropVariantFromString(value,&v))){store->SetValue(key,v);PropVariantClear(&v);}};
+    set(PKEY_AppUserModel_ID,L"MaDaAi.MultiMini");
+    const jchar* path=env->GetStringChars(icon,nullptr);if(!path)return;
+    set(PKEY_AppUserModel_RelaunchIconResource,reinterpret_cast<const wchar_t*>(path));env->ReleaseStringChars(icon,path);
+    const jchar* launch=env->GetStringChars(command,nullptr);if(!launch)return;
+    set(PKEY_AppUserModel_RelaunchCommand,reinterpret_cast<const wchar_t*>(launch));env->ReleaseStringChars(command,launch);
+    set(PKEY_AppUserModel_RelaunchDisplayNameResource,L"MultiMini");store->Commit();
 }

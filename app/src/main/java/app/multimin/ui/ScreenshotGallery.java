@@ -17,7 +17,7 @@ final class ScreenshotGallery extends JFrame {
     final JList<ScreenshotStore.Photo> photos=new JList<>(model);
     final JTextArea detail=new JTextArea("Select one screenshot"); final JLabel status=new JLabel(" ");
     final ImagePreview preview=new ImagePreview();
-    final JButton keep,delete,location;
+    final JButton keep,delete,location,copy;
     final Map<Path,BufferedImage> thumbnails=new LinkedHashMap<>(96,.75f,true){@Override protected boolean removeEldestEntry(Map.Entry<Path,BufferedImage> e){return size()>96;}};
     final Set<Path> pending=new HashSet<>();
     final ExecutorService files=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"screenshot-files");t.setDaemon(true);return t;});
@@ -37,12 +37,13 @@ final class ScreenshotGallery extends JFrame {
         JScrollPane scroll=new JScrollPane(photos);ModernUi.scroll(scroll.getVerticalScrollBar(),palette);ModernUi.scroll(scroll.getHorizontalScrollBar(),palette);scroll.setMinimumSize(new Dimension(220,0));
         JPanel right=new JPanel(new BorderLayout(8,12));right.setBorder(new EmptyBorder(0,12,0,0));right.add(preview);right.setMinimumSize(new Dimension(250,0));
         detail.setFont(new Font(Font.DIALOG,Font.PLAIN,12));status.setFont(new Font(Font.DIALOG,Font.PLAIN,11));detail.setLineWrap(true);detail.setWrapStyleWord(true);detail.setEditable(false);detail.setFocusable(false);detail.setOpaque(false);detail.setRows(2);JPanel bottom=new JPanel(new BorderLayout(8,12));bottom.add(detail,BorderLayout.NORTH);JPanel actions=new JPanel(new GridLayout(0,1,0,8));
+        copy=button("Copy");copy.addActionListener(e->{var photo=photos.getSelectedValue();if(photo!=null){final int token=generation;images.execute(()->{BufferedImage image=read(photo.path(),Integer.MAX_VALUE);SwingUtilities.invokeLater(()->{if(closed||token!=generation)return;try{if(image==null)throw new IllegalStateException("Image unavailable");ScreenshotSelection.copy(image);status.setText("Screenshot copied to clipboard");}catch(Exception error){status.setText("Could not copy: "+error.getMessage());}});});}});
         keep=button("Keep");keep.setModel(new JToggleButton.ToggleButtonModel());delete=button("Delete");location=button("Open file location");
         keep.setToolTipText("Keep indefinitely. Turning Keep off starts a new seven-day timer.");
         keep.addActionListener(e->{var p=photos.getSelectedValue();if(p!=null)work(()->store.keep(p,!p.kept()));});
         delete.addActionListener(e->{var p=photos.getSelectedValue();if(p!=null&&confirmDelete())work(()->store.delete(p));});
         location.addActionListener(e->{var p=photos.getSelectedValue();if(p!=null)work(()->{if(System.getProperty("os.name").startsWith("Windows"))new ProcessBuilder("explorer.exe","/select,"+p.path().toString()).start();else Desktop.getDesktop().open(store.directory.toFile());});});
-        actions.add(keep);actions.add(delete);actions.add(location);bottom.add(actions);right.add(bottom,BorderLayout.SOUTH);
+        actions.add(copy);actions.add(keep);actions.add(delete);actions.add(location);bottom.add(actions);right.add(bottom,BorderLayout.SOUTH);
         JSplitPane split=new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,scroll,right);ModernUi.split(split,palette);split.setResizeWeight(.58);split.setDividerLocation(560);root.add(split);root.add(status,BorderLayout.SOUTH);setContentPane(root);
         theme(root);select();reload(null);timer=new javax.swing.Timer(30000,e->reload(null));timer.start();
     }
@@ -55,7 +56,7 @@ final class ScreenshotGallery extends JFrame {
     void reload(Path requested){if(closed)return;java.util.List<Path> selection=requested==null?photos.getSelectedValuesList().stream().map(ScreenshotStore.Photo::path).toList():java.util.List.of(requested);
         files.submit(()->{try{var entries=store.list();SwingUtilities.invokeLater(()->{if(closed)return;model.clear();entries.forEach(model::addElement);for(int i=0;i<model.size();i++)if(selection.contains(model.get(i).path()))photos.addSelectionInterval(i,i);status.setText(entries.size()+" screenshots · Temporary photos expire after seven days. Keep saves them indefinitely.");select();});}catch(Exception ex){SwingUtilities.invokeLater(()->status.setText("Could not load screenshots: "+ex.getMessage()));}});
     }
-    private void select(){int token=++generation;boolean single=photos.getSelectedIndices().length==1;keep.setEnabled(single);delete.setEnabled(single);location.setEnabled(single);preview.image=null;preview.repaint();
+    private void select(){int token=++generation;boolean single=photos.getSelectedIndices().length==1;copy.setEnabled(single);keep.setEnabled(single);delete.setEnabled(single);location.setEnabled(single);preview.image=null;preview.repaint();
         if(!single){detail.setText("Select one screenshot");keep.setSelected(false);return;}
         var photo=photos.getSelectedValue();keep.setSelected(photo.kept());detail.setText(photo.time(System.currentTimeMillis()));
         try{images.execute(()->{BufferedImage image=read(photo.path(),1600);SwingUtilities.invokeLater(()->{if(!closed&&token==generation){preview.image=image;preview.repaint();if(image==null)detail.setText("Image could not be opened");}});});}catch(RejectedExecutionException ignored){}

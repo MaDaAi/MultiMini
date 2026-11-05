@@ -1,4 +1,4 @@
-param([string]$Version = '0.05', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
+param([string]$Version = '0.06', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot

@@ -6,7 +6,7 @@ import java.awt.Color;
 public final class Source {
     public enum Kind {
         DISPLAY("Display capture", "▣"), WINDOW("Window capture", "▤"),
-        IMAGE("Image", "◇"), VIDEO("Video", "▶"), GAME("Game capture (experimental)", "◉");
+        IMAGE("Image", "◇"), VIDEO("Video", "▶"), GAME("Game capture", "◉");
 
         public final String label;
         public final String glyph;
