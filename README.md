@@ -2,6 +2,10 @@
 
 A Windows desktop multitasking utility that combines windows, games, displays, and images into configurable layers. Arrange sources, adjust visibility, and switch which source receives your input.
 
+# Why I decided to create this app
+
+I was behind on lecture videos and I wanted to play minecraft in the background, but I needed to see what was happening on the video. I was in a single player world on minecraft and I know I am not going to be completely focused on minecraft, so I wanted to watch the lecture videos overlayed on my Minecraft and have the visibility turned down. Thats what this app specializing in. The whole purpose of this app is to help users multitask just like I did. This app has many features for multitasking. This app can solve multitasking issues and help make multitasking easier on a single monitor setup.
+
 ## Features
 
 - Window, display, image, and WGC game-window capture.
