@@ -9,7 +9,7 @@ import java.awt.Font;
 import java.awt.Color;
 public final class LegalConsent {
  private static Palette THEME=new Palette();
- private static final String VERSION="2026-11-05";
+ private static final String VERSION="2026-11-05-updates";
  private static String read(String name){try(var in=LegalConsent.class.getResourceAsStream("/legal/"+name)){if(in==null)return "Document unavailable. Obtain the complete release before using capture.";return new String(in.readAllBytes(),StandardCharsets.UTF_8);}catch(Exception e){return "Document could not be read.";}}
  private static Color BG=new Color(24,27,33), PANEL=new Color(35,39,48), TEXT=new Color(232,235,240), MUTED=new Color(150,157,169), ACCENT=new Color(103,153,255);
  public static void setPalette(Palette palette){THEME=palette;BG=palette.background;PANEL=palette.controlSurface();TEXT=palette.text;MUTED=palette.muted;ACCENT=palette.accent;}

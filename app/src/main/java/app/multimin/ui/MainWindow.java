@@ -158,7 +158,7 @@ public final class MainWindow extends JFrame {
     private String pendingImagePath = "";
 
     public MainWindow(PythonBridge backend) {
-        super(Boolean.getBoolean("multimin.dev.gameCapture") ? "MultiMini Experimental" : "MultiMini");
+        super(System.getProperty("jpackage.app-version")!=null ? "MultiMini" : Boolean.getBoolean("multimin.dev.gameCapture") ? "MultiMini Experimental" : "MultiMini");
         this.backend = backend;
         try { appLogo = new LogoIcon(36); setIconImages(List.of(new LogoIcon(16).toImage(), new LogoIcon(32).toImage(), new LogoIcon(64).toImage(), new LogoIcon(256).toImage())); if(Taskbar.isTaskbarSupported()&&Taskbar.getTaskbar().isSupported(Taskbar.Feature.ICON_IMAGE))Taskbar.getTaskbar().setIconImage(new LogoIcon(256).toImage()); }
         catch (Exception ignored) { appLogo = null; }
@@ -290,6 +290,7 @@ public final class MainWindow extends JFrame {
         workspaceTimer = new javax.swing.Timer(5000, event -> saveWorkspace()); workspaceTimer.start();
     }
 
+    public void checkForUpdatesOnLaunch(){GithubUpdater.checkOnLaunch(this,()->{if(!workspaceWritable)throw new IllegalStateException("Recover your workspace before updating");try{workspaceStore.save(views,activeView);}catch(java.io.IOException error){throw new IllegalStateException("Workspace could not be saved",error);}},()->{shutdownServices();dispose();System.exit(0);});}
     private void buildUi() {
         root.setBackground(palette.background); configuration.setOpaque(false); topBar.setLayout(new BoxLayout(topBar, BoxLayout.X_AXIS));
         topBar.setBorder(new EmptyBorder(10, 18, 10, 18));

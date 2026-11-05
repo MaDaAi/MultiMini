@@ -12,36 +12,30 @@ import java.io.*;
 final class GithubUpdater {
     private static boolean busy;
     record Prepared(Path file, String hash, String version) {}
-    static void show(JFrame owner, Runnable save, Runnable exit) {
+    static void checkOnLaunch(JFrame owner,Runnable save,Runnable exit){if(Boolean.getBoolean("multimin.publicUpdates"))check(owner,save,exit,true);}
+    static void show(JFrame owner,Runnable save,Runnable exit){check(owner,save,exit,false);}
+    private static void check(JFrame owner, Runnable save, Runnable exit, boolean startup) {
+        if (busy && startup)return;
         if (busy) { message(owner,"An update operation is already in progress."); return; }
         Path install;
         try {
             Path jar=Path.of(GithubUpdater.class.getProtectionDomain().getCodeSource().getLocation().toURI());
             install=jar.getParent().getParent();
             if(!Files.isRegularFile(install.resolve("MultiMini.exe")))throw new IOException();
-        } catch(Exception error) { message(owner,"Installable updates work in the Windows EXE build. Download the installer from your private GitHub Releases page.");return; }
+        } catch(Exception error) { if(!startup)message(owner,"Installable updates work in the Windows EXE build. Download the installer from GitHub Releases.");return; }
         if(!Boolean.getBoolean("multimin.publicUpdates")){manual(owner,install,save,exit);return;}
-        if(JOptionPane.showConfirmDialog(owner,"Contact GitHub to check for updates? GitHub receives network metadata. No workspace or captured content is sent.","Check for updates",JOptionPane.OK_CANCEL_OPTION)!=JOptionPane.OK_OPTION)return;
         busy=true;
         new SwingWorker<String[],Void>() {
             Path script;
             protected String[] doInBackground()throws Exception{script=extractScript();return runScript(script,"-CurrentVersion",current());}
-            protected void done(){try{String[] result=get();if(result.length==0||result[0].equals("NONE")){busy=false;message(owner,"No newer packaged Windows release was found.");return;}if(JOptionPane.showConfirmDialog(owner,"Download version "+result[0]+", save your workspace and restart to apply it?","Update MultiMini",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION){busy=false;return;}download(owner,script,install,save,exit);}catch(Exception error){busy=false;message(owner,"Update check failed: "+cause(error));}}
+            protected void done(){try{String[] result=get();if(startup&&(!owner.isShowing()||!owner.isDisplayable())){busy=false;return;}if(result.length>0&&result[0].equals("PRIVATE")){busy=false;if(!startup)manual(owner,install,save,exit);return;}if(result.length==0||result[0].equals("NONE")){busy=false;if(!startup)message(owner,"You're up to date.");return;}if(JOptionPane.showConfirmDialog(owner,"Download version "+result[0]+", save your workspace and restart to apply it?","Update MultiMini",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION){busy=false;return;}download(owner,script,install,save,exit);}catch(Exception error){busy=false;if(!startup)message(owner,"Update check failed: "+cause(error));}}
         }.execute();
     }
     private static String current(){return System.getProperty("jpackage.app-version","0.03");}
     private static void manual(JFrame owner,Path install,Runnable save,Runnable exit){
-        Object[] choices={"Open private releases","Install downloaded update…","Close"};
-        int choice=JOptionPane.showOptionDialog(owner,"Your repository stays private. Sign in to GitHub in your browser and download\nthe newer installer and matching .exe.sha256 file into the same folder.\nThen install them here without a setup wizard. Your workspace stays intact.\nNo GitHub credential is stored in MultiMini.","Private updates",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,choices,choices[0]);
-        if(choice==0){try{java.awt.Desktop.getDesktop().browse(java.net.URI.create("https://github.com/MaDaAi/MultiMini/releases"));}catch(Exception error){message(owner,"Open https://github.com/MaDaAi/MultiMini/releases in your browser.");}return;}
-        if(choice!=1)return;
-        JFileChooser picker=new JFileChooser();picker.setDialogTitle("Select the newer MultiMini Windows installer");picker.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("MultiMini installer (*.exe)","exe"));
-        if(picker.showOpenDialog(owner)!=JFileChooser.APPROVE_OPTION)return;
-        busy=true;JDialog progress=progress(owner,"Verifying downloaded update…");Path selected=picker.getSelectedFile().toPath();
-        new SwingWorker<Prepared,Void>(){
-            protected Prepared doInBackground()throws Exception{return stageLocal(selected,cache(),current());}
-            protected void done(){progress.dispose();try{Prepared prepared=get();if(JOptionPane.showConfirmDialog(owner,"Version "+prepared.version()+" is verified. Save your workspace, close MultiMini,\napply the update in place and restart?","Ready to update",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION){busy=false;return;}apply(extractScript(),prepared.file(),prepared.hash(),install,save,exit);}catch(Exception error){busy=false;message(owner,"Update was not applied: "+cause(error));}}
-        }.execute();
+        Object[] choices={"Open releases","Close"};
+        int choice=JOptionPane.showOptionDialog(owner,"Updates are not publicly accessible yet. Sign in to an authorized GitHub account,\ndownload the newer installer and run it over the existing installation.\nYour saved views, sources, settings and screenshots are preserved.\nOnce releases are public, MultiMini can download and apply updates for you.","MultiMini updates",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,choices,choices[0]);
+        if(choice==0)try{java.awt.Desktop.getDesktop().browse(java.net.URI.create("https://github.com/MaDaAi/MultiMini/releases"));}catch(Exception error){message(owner,"Open https://github.com/MaDaAi/MultiMini/releases in your browser.");}
     }
     static Prepared stageLocal(Path selected,Path cache,String current)throws Exception{
         String name=selected.getFileName().toString();var match=Pattern.compile("^MultiMini-Setup-([0-9.]+)-Windows-x64\\.exe$").matcher(name);

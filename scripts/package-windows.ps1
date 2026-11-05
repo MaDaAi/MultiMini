@@ -1,4 +1,4 @@
-param([string]$Version = '0.06', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
+param([string]$Version = '1.0', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
@@ -49,7 +49,7 @@ Set-Content -LiteralPath (Join-Path $RuntimeRoot 'python314._pth') -Encoding asc
 if ($LASTEXITCODE -ne 0) { throw 'Bundling Python dependencies failed.' }
 & "$RuntimeRoot\python.exe" -I -c "import windows_capture,cv2,numpy,PIL,mss,platformdirs,multimin_backend; print('Bundled Python imports OK')"
 if ($LASTEXITCODE -ne 0) { throw 'Embedded runtime dependency check failed.' }
-$Channel = if ($SafetyBuild) { 'Safety' } else { 'Experimental' }
+$Channel = if ($SafetyBuild) { 'Safety' } else { 'Windows' }
 & "$RuntimeRoot\python.exe" (Join-Path $PSScriptRoot 'generate-branding.py') --channel $Channel
 if ($LASTEXITCODE -ne 0) { throw 'Branding asset generation failed.' }
 $ImageRoot = Join-Path $PackageRoot 'image'

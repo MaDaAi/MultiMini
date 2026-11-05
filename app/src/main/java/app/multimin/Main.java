@@ -60,6 +60,7 @@ public final class Main {
             window.setVisible(true);
             app.multimin.ui.WindowBranding.apply(window);
             backend.start(window::setBackendStatus);
+            window.checkForUpdatesOnLaunch();
         });
     }
 }

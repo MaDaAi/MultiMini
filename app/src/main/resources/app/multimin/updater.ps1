@@ -17,9 +17,10 @@ try {
   exit 0
  }
  $headers=@{'User-Agent'='MultiMini-Updater';'Accept'='application/vnd.github+json'}
- $releases=Invoke-RestMethod -Uri 'https://api.github.com/repos/MaDaAi/MultiMini/releases?per_page=10' -Headers $headers -TimeoutSec 30
+ try { $releases=Invoke-RestMethod -Uri 'https://api.github.com/repos/MaDaAi/MultiMini/releases?per_page=10' -Headers $headers -TimeoutSec 30 }
+ catch { if($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404){Write-Output 'PRIVATE';exit 0};throw }
  $candidate=$null
- foreach($release in $releases){if($release.draft){continue};foreach($asset in $release.assets){if($asset.name -match '^MultiMini-Setup-([0-9.]+)-Windows-x64\.exe$'){$version=$Matches[1];if([version]$version -gt [version]$CurrentVersion -and (!$candidate -or [version]$version -gt [version]$candidate.Version)){$sum=$release.assets | Where-Object name -eq ($asset.name+'.sha256') | Select-Object -First 1;if($sum){$candidate=[pscustomobject]@{Version=$version;Asset=$asset;Sum=$sum}}}}}}
+ foreach($release in $releases){if($release.draft -or $release.prerelease){continue};foreach($asset in $release.assets){if($asset.name -match '^MultiMini-Setup-([0-9.]+)-Windows-x64\.exe$'){$version=$Matches[1];if([version]$version -gt [version]$CurrentVersion -and (!$candidate -or [version]$version -gt [version]$candidate.Version)){$sum=$release.assets | Where-Object name -eq ($asset.name+'.sha256') | Select-Object -First 1;if($sum){$candidate=[pscustomobject]@{Version=$version;Asset=$asset;Sum=$sum}}}}}}
  if(!$candidate){Write-Output 'NONE';exit 0}
  foreach($url in @($candidate.Asset.browser_download_url,$candidate.Sum.browser_download_url)){if(-not $url.StartsWith('https://github.com/MaDaAi/MultiMini/releases/download/',[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected update source'}}
  if(!$Prepare){Write-Output $candidate.Version;exit 0}

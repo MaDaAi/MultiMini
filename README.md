@@ -21,7 +21,7 @@ Capture stays local. MultiMini does not record video or stream. Game-window capt
 
 Download the Windows x64 installer from [Releases](https://github.com/MaDaAi/MultiMini/releases) and run it. Java, Python, and capture dependencies are bundled. Launch through the installed Start menu or desktop shortcut.
 
-This repository is private, so downloads and support require an authorized GitHub account. The installer is unsigned. Windows is the supported platform; Linux capture and input routing are not implemented.
+**Windows only (64-bit).** Linux and macOS support are coming soon; those versions are not available yet. Releases and support are public. The Windows installer is currently unsigned.
 
 ## Use
 
@@ -50,7 +50,9 @@ Views, sources, transforms, and settings are saved automatically. Keep original 
 
 ## Updates
 
-Download the newer installer and matching `.exe.sha256` file from Releases into the same folder. Use **Settings → General → Updates → Install downloaded update**, or run the installer over your existing installation. Back up your workspace before updating. GitHub credentials are not embedded in the app.
+Download only the installer to set up MultiMini. Installed Windows builds check for updates on launch. When a newer public release is available, choose Update: MultiMini downloads and verifies it automatically, saves your workspace, installs it, and relaunches. You do not need to download or handle checksum files. Saved views, sources, settings, and screenshots remain outside the installation folder and are preserved.
+
+Only regular public releases are offered automatically. Offline checks fail quietly; you can check again through Settings or download the newer installer from Releases. GitHub credentials are not embedded in the app.
 
 ## Development
 

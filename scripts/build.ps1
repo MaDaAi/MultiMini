@@ -40,7 +40,7 @@ $GameCaptureFeature = if ($DevelopmentGameCapture) { 'true' } else { 'false' }
 Set-Content -LiteralPath (Join-Path $ClassRoot 'build.properties') -Value @(
     "experimentalGameCapture=$GameCaptureFeature"
     'nativeWindowPresentation=true'
-    'publicUpdates=false'
+    'publicUpdates=true'
 ) -Encoding Ascii
 
 $ResourceRoot = Join-Path $ProjectRoot 'app\src\main\resources'
