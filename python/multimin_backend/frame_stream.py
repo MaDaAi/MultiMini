@@ -36,8 +36,10 @@ class SharedReply:
 
 
 class FrameStream:
-    def __init__(self, on_publish=None) -> None:
+    def __init__(self, on_publish=None, coalesce_notifications=False) -> None:
         self._on_publish = on_publish
+        self._coalesce_notifications = coalesce_notifications
+        self._pending_notifications: set[str] = set()
         self._lock = threading.Lock()
         self._frames: dict[str, tuple[int, int, int, int, bytes]] = {}
         self._sequence: dict[str, int] = {}
@@ -57,15 +59,20 @@ class FrameStream:
             sequence = self._sequence.get(source, 0) + 1
             self._sequence[source] = sequence
             self._frames[source] = (width, height, sequence, time.monotonic_ns(), pixels)
-        if self._on_publish is not None:
+            notify = not self._coalesce_notifications or source not in self._pending_notifications
+            if self._coalesce_notifications:
+                self._pending_notifications.add(source)
+        if notify and self._on_publish is not None:
             self._on_publish()
 
     def remove(self, source: str) -> None:
         with self._lock:
+            self._pending_notifications.discard(source)
             self._frames.pop(source, None)
 
     def forget(self, source: str) -> None:
         with self._lock:
+            self._pending_notifications.discard(source)
             self._frames.pop(source, None)
             self._sequence.pop(source, None)
 
@@ -102,7 +109,11 @@ class FrameStream:
                         return
                     previous_sequence = struct.unpack("!Q", last_seen)[0]
                     with self._lock:
-                        frame = self._frames.get(name.decode("utf-8"))
+                        source = name.decode("utf-8")
+                        frame = self._frames.get(source)
+                        # Re-arm atomically with selecting the newest complete frame.
+                        # Notifications never represent a queue of pixel buffers.
+                        self._pending_notifications.discard(source)
                     if frame is None:
                         client.sendall(struct.pack("!IIQQI", 0, 0, 0, 0, 0))
                     else:

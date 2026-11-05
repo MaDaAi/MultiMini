@@ -1,4 +1,4 @@
-param([string]$Version = '0.04', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
+param([string]$Version = '0.05', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
@@ -33,7 +33,10 @@ if (-not $SafetyBuild -and (Test-Path 'native\build\multimin-dx11-test.exe')) {
     Copy-Item 'native\build\multimin-dx11-test.exe' (Join-Path $InputRoot 'native\build')
 }
 Copy-Item README.md,LICENSE,TERMS.md,PRIVACY.md $InputRoot
-Copy-Item -LiteralPath 'python\multimin_backend' -Destination $PythonRoot -Recurse
+# Package executable modules only; never copy caches, local data or credentials.
+$BackendRoot = Join-Path $PythonRoot 'multimin_backend'
+New-Item -ItemType Directory -Force $BackendRoot | Out-Null
+Get-ChildItem -LiteralPath 'python\multimin_backend' -File -Filter '*.py' | Copy-Item -Destination $BackendRoot
 $Archive = Join-Path $ProjectRoot 'build\tools\python-3.14.0-embed-amd64.zip'
 if (-not (Test-Path -LiteralPath $Archive)) {
     New-Item -ItemType Directory -Force (Split-Path -Parent $Archive) | Out-Null

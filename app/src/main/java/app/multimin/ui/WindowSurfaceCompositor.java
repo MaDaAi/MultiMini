@@ -11,14 +11,15 @@ import java.util.function.IntFunction;
 final class WindowSurfaceCompositor implements AutoCloseable {
     private record Entry(Source source,long window,long thumbnail) {}
     private final List<Entry> entries=new ArrayList<>();
+    private record Placement(Rectangle viewport,Rectangle clip,int left,int top,int width,int height,int opacity) {}
+    private final Map<Long,Placement> placements=new HashMap<>();
     private long owner;
     private boolean failed;
     void reset() { close();failed=false; }
 
     void update(PreviewPanel panel,View view,Rectangle canvas,boolean locked,IntFunction<Rectangle> bounds) {
         boolean eligible=locked && panel.isShowing() && Boolean.getBoolean("multimin.nativeWindowPresentation")
-            && !Boolean.getBoolean("multimin.disableNativeComposition") && !failed
-            && GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices().length==1;
+            && !Boolean.getBoolean("multimin.disableNativeComposition") && !failed;
         List<Source> sources=new ArrayList<>();
         if(eligible) for(int i=view.sources.size()-1;i>=0;i--) {
             Source source=view.sources.get(i);
@@ -58,8 +59,13 @@ final class WindowSurfaceCompositor implements AutoCloseable {
                 int top=(int)Math.round((clip.y-dest.y)*(double)height/dest.height);
                 int right=(int)Math.round((clip.x+clip.width-dest.x)*(double)width/dest.width);
                 int bottom=(int)Math.round((clip.y+clip.height-dest.y)*(double)height/dest.height);
-                if(!NativeWindowCompositor.update(entry.thumbnail(),owner,clip.x,clip.y,clip.width,clip.height,
-                    left,top,right-left,bottom-top,Math.max(0,Math.min(255,source.opacity*255/100)))) {failed=true;close();return;}
+                int opacity=Math.max(0,Math.min(255,source.opacity*255/100));
+                Placement placement=new Placement(viewport,clip,left,top,right-left,bottom-top,opacity);
+                if(!placement.equals(placements.get(entry.thumbnail()))) {
+                    if(!NativeWindowCompositor.update(entry.thumbnail(),owner,clip.x,clip.y,clip.width,clip.height,
+                        left,top,right-left,bottom-top,opacity)) {failed=true;close();return;}
+                    placements.put(entry.thumbnail(),placement);
+                }
                 source.nativeCompositionActive=true;
                 source.standbyFrame=null;
                 source.activeCaptureBackend="Native DWM composition · monitor paced · no CPU frames";
@@ -73,6 +79,6 @@ final class WindowSurfaceCompositor implements AutoCloseable {
             entry.source().nativeCompositionActive=false;
             entry.source().nativeSourceWidth=0;entry.source().nativeSourceHeight=0;
         }
-        entries.clear();owner=0;
+        entries.clear();placements.clear();owner=0;
     }
 }

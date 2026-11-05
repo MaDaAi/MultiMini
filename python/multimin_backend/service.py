@@ -22,7 +22,7 @@ class CaptureService:
     def __init__(self, emit) -> None:
         self.emit = emit
         self.snapshots = SnapshotStore()
-        self.frame_stream = FrameStream(lambda: self.emit({"event": "frame_ready"}))
+        self.frame_stream = FrameStream(lambda: self.emit({"event": "frame_ready"}), coalesce_notifications=True)
         self.game_ingest = GameIngest(self._publish_game_frame)
         self.game_processes: dict[str, subprocess.Popen] = {}
         self.game_active: set[str] = set()
@@ -33,6 +33,7 @@ class CaptureService:
         self.input_hwnd = 0
         self.multitask_enabled = False
         self.capture_fps = 60
+        self.source_paced = False
         self.native_input = WindowsInputBridge(emit) if sys.platform == "win32" else None
         self.window_captures: dict[str, tuple[str, str, int, str, bool]] = {}
         self.active_window_paths: set[str] | None = None
@@ -50,6 +51,7 @@ class CaptureService:
 
     def _capture_windows(self) -> None:
         while not self.capture_stop.is_set():
+            iteration_started = time.monotonic()
             with self.capture_lock:
                 captures = list(self.window_captures.items())
             for path, (title, _source_id, hwnd, method, capture_cursor) in captures:
@@ -77,7 +79,7 @@ class CaptureService:
                             self.graphics_retry_after[path] = min(self.graphics_retry_after.get(path, 0.0), time.monotonic())
                 except Exception as error:
                     self.emit({"event": "error", "message": f"Window capture failed: {error}"})
-            self.capture_stop.wait(1.0 / self.capture_fps)
+            self.capture_stop.wait(max(0.001, 1.0 / self.capture_fps - (time.monotonic() - iteration_started)))
 
     def _stop_graphics_capture(self, path: str) -> None:
         with self.capture_lock:
@@ -104,11 +106,9 @@ class CaptureService:
                 self.graphics_starting.discard(path)
             return False
         try:
-            with self.capture_lock:
-                frame_lock = self.frame_locks.setdefault(path, threading.Lock())
             capture = WindowsCapture(window_hwnd=hwnd if monitor_index is None else None,
                                      monitor_index=monitor_index, cursor_capture=capture_cursor,
-                                     draw_border=False, minimum_update_interval=(1 if self.capture_fps >= 90 else max(1, (1000 // self.capture_fps) // 2)))
+                                     draw_border=False, minimum_update_interval=1)
             next_publish_ns = 0
 
             @capture.event
@@ -117,9 +117,9 @@ class CaptureService:
                 try:
                     now = time.monotonic_ns()
                     period = 1_000_000_000 // self.capture_fps
-                    if now + period // 10 < next_publish_ns:
+                    if not getattr(self, "source_paced", False) and now + period // 10 < next_publish_ns:
                         return
-                    next_publish_ns = max(now, next_publish_ns + period)
+                    next_publish_ns = now if getattr(self, "source_paced", False) else max(now, next_publish_ns + period)
                     pixels = frame.frame_buffer.tobytes()
                     self.frame_stream.publish(path, frame.width, frame.height, pixels)
                 except Exception as error:
@@ -189,6 +189,7 @@ class CaptureService:
             self.opacity = max(0, min(100, int(message.get("value", 100))))
             return {"event": "opacity_changed", "value": self.opacity}
         if command == "set_capture_fps":
+            self.source_paced = bool(message.get("source_paced", False))
             self.capture_fps = max(1, min(1000, int(message.get("value", 60))))
             with self.capture_lock:
                 active = list(self.graphics_captures)
@@ -217,6 +218,16 @@ class CaptureService:
             if self.native_input:
                 self.native_input.set_layer_layout(message.get("items", []))
             return {"event": "layer_layout_changed"}
+        if command == "screenshot_shortcuts":
+            if self.native_input:
+                self.native_input.screenshot_bindings = [(str(message.get("region", "SHIFT+INSERT")), "screenshot_region"), (str(message.get("full", "INSERT")), "screenshot_full")]
+            return {"event": "screenshot_shortcuts_updated"}
+        if command == "screenshot_selection":
+            if self.native_input:
+                self.native_input.screenshot_selecting = bool(message.get("enabled", False))
+                if not self.native_input.screenshot_selecting and self.multitask_enabled and self.input_hwnd:
+                    self.native_input.focus_window(self.input_target, self.input_hwnd)
+            return {"event": "screenshot_selection_updated"}
         if command == "set_overlay_control_region":
             if self.native_input:
                 self.native_input.set_overlay_control_region(tuple(int(message.get(key, 0)) for key in ("x", "y", "width", "height")))
@@ -373,12 +384,57 @@ def run() -> None:
     service.snapshots.cleanup()
     emit({"event": "ready", "protocol": 1, "local_only": True, "frame_port": service.frame_stream.port,
           "game_available": service.game_available, "frame_notifications": True})
-    for line in sys.stdin:
-        try:
-            message = json.loads(line)
-            response = service.dispatch(message)
-            emit(response)
-            if response.get("event") == "shutdown":
-                break
-        except Exception as error:
-            emit({"event": "error", "message": str(error)})
+    # EOF is a shutdown signal too: the JVM can exit without sending a command.
+    # Independently watch the owning JVM in case a surviving process holds stdin.
+    def watch_owner():
+        if sys.platform != "win32":
+            return
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        while not service.capture_stop.wait(0.25):
+            pid = getattr(service.native_input, "_app_pid", 0)
+            if not pid:
+                continue
+            handle = kernel.OpenProcess(0x00100000, False, pid)
+            if not handle:
+                # ERROR_INVALID_PARAMETER means the PID has already exited;
+                # access-denied is not evidence of owner death.
+                dead = ctypes.get_last_error() == 87
+                if not dead:
+                    continue
+            else:
+                try:
+                    while not service.capture_stop.is_set():
+                        result = kernel.WaitForSingleObject(handle, 250)
+                        if result == 0:
+                            break
+                        if result != 258:
+                            return
+                    dead = not service.capture_stop.is_set()
+                finally:
+                    kernel.CloseHandle(handle)
+            if dead:
+                try:
+                    service.dispatch({"command": "shutdown"})
+                finally:
+                    os._exit(0)
+    threading.Thread(target=watch_owner, name="multimin-owner-watch", daemon=True).start()
+    try:
+        for line in sys.stdin:
+            try:
+                message = json.loads(line)
+                response = service.dispatch(message)
+                emit(response)
+                if response.get("event") == "shutdown":
+                    break
+            except Exception as error:
+                emit({"event": "error", "message": str(error)})
+    finally:
+        if not service.capture_stop.is_set():
+            service.dispatch({"command": "shutdown"})

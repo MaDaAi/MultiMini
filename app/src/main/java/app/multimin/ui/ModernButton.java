@@ -28,5 +28,5 @@ public final class ModernButton extends JButton {
         setForeground(primary || model.isSelected() ? palette.selectionText() : palette.text); super.paintComponent(graphics);
     }
 
-    private static int brightness(Color c) { return (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000; }
+
 }

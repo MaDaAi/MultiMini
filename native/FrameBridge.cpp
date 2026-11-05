@@ -119,3 +119,14 @@ extern "C" JNIEXPORT jboolean JNICALL Java_app_multimin_backend_NativeWindowComp
 }
 extern "C" JNIEXPORT void JNICALL Java_app_multimin_backend_NativeWindowCompositor_unregister
  (JNIEnv*,jclass,jlong thumbnail) {if(thumbnail)DwmUnregisterThumbnail(reinterpret_cast<HTHUMBNAIL>(thumbnail));}
+
+// Screenshot access is restricted to windows owned by this JVM. Restore the
+// returned original affinity immediately after taking the one-shot snapshot.
+extern "C" JNIEXPORT jint JNICALL Java_app_multimin_backend_NativeWindowCompositor_captureAffinity
+ (JNIEnv*,jclass,jlong window,jint affinity) {
+    HWND hwnd=reinterpret_cast<HWND>(window);DWORD process=0,previous=0;
+    GetWindowThreadProcessId(hwnd,&process);
+    if(process!=GetCurrentProcessId() || !GetWindowDisplayAffinity(hwnd,&previous))return -1;
+    if(!SetWindowDisplayAffinity(hwnd,static_cast<DWORD>(affinity)))return -1;
+    DwmFlush();return static_cast<jint>(previous);
+}

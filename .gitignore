@@ -8,3 +8,17 @@
 *.log
 multimin-settings.properties
 /backups/
+
+# Local credentials and user data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+credentials.json
+workspace.properties
+agreement.properties
+/screenshots/
+/.codex/

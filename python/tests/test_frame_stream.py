@@ -20,6 +20,24 @@ class FrameStreamTests(unittest.TestCase):
         finally:
             stream.close()
 
+    def test_coalesced_notifications_rearm_on_read_and_keep_latest_pixels(self):
+        notices = []
+        stream = FrameStream(lambda: notices.append(True), coalesce_notifications=True)
+        try:
+            for value in range(100):
+                stream.publish("source", 1, 1, bytes((value, 0, 0, 255)))
+            self.assertEqual(len(notices), 1)
+            with socket.create_connection(("127.0.0.1", stream.port), timeout=2) as client:
+                client.settimeout(2)
+                client.sendall(struct.pack("!H", 6) + b"source" + struct.pack("!Q", 0))
+                width, height, sequence, timestamp, length = struct.unpack("!IIQQI", self._read(client, 28))
+                self.assertEqual(sequence, 100)
+                self.assertEqual(self._read(client, length), bytes((99, 0, 0, 255)))
+                stream.publish("source", 1, 1, bytes((101, 0, 0, 255)))
+                self.assertEqual(len(notices), 2)
+        finally:
+            stream.close()
+
     def test_latest_frame_replaces_old_frame_and_skips_unchanged_pixels(self):
         stream = FrameStream()
         try:

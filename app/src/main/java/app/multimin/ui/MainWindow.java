@@ -74,7 +74,7 @@ public final class MainWindow extends JFrame {
     private long lastPerformanceSampleNanos = System.nanoTime();
     private final javax.swing.Timer performanceTimer;
     private final AppPreferences preferences = new AppPreferences();
-    private int performanceFps = Math.max(0, Math.min(240,
+    private int performanceFps = Math.max(0, Math.min(1000,
         !preferences.getBoolean("captureFpsChoiceV2", false) && preferences.getInt("captureFps", 0) == 60
             ? 0 : preferences.getInt("captureFps", 0)));
     private int revealCornerIndex = Math.clamp(preferences.getInt("revealCorner", 0), 0, 4);
@@ -97,6 +97,21 @@ public final class MainWindow extends JFrame {
     private JButton multitaskExitButton;
     private JLabel multitaskTargetLabel;
     private javax.swing.Timer inputNoticeTimer;
+    private String screenshotKey=preferences.getString("screenshotKey","INSERT"), regionScreenshotKey=preferences.getString("regionScreenshotKey","CTRL+SHIFT+F12");
+    private ScreenshotSelection screenshotSelection;
+    { if("SHIFT+INSERT".equals(regionScreenshotKey)){regionScreenshotKey="CTRL+SHIFT+F12";preferences.putString("regionScreenshotKey",regionScreenshotKey);} }
+    private void configureScreenshotKeys(){backend.send("{\"command\":\"screenshot_shortcuts\",\"full\":\""+screenshotKey+"\",\"region\":\""+regionScreenshotKey+"\"}");}
+    private JButton screenshotKeyRecorder(String binding){JButton button=quietButton(prettyKeyBinding(binding));button.putClientProperty("binding",binding);button.addActionListener(e->{button.putClientProperty("recording",true);button.setText("Press shortcut…");button.requestFocusInWindow();});button.addKeyListener(new java.awt.event.KeyAdapter(){@Override public void keyPressed(KeyEvent e){if(!Boolean.TRUE.equals(button.getClientProperty("recording")))return;e.consume();if(e.getKeyCode()==KeyEvent.VK_ESCAPE){button.putClientProperty("recording",false);button.setText(prettyKeyBinding((String)button.getClientProperty("binding")));return;}String key=keyBindingForEvent(e);if(key!=null){button.putClientProperty("binding",key);button.putClientProperty("recording",false);button.setText(prettyKeyBinding(key));}}});return button;}
+    private void saveMultitaskScreenshot(java.awt.image.BufferedImage image){new SwingWorker<Path,Void>(){protected Path doInBackground()throws Exception{return new ScreenshotStore().save(image);}protected void done(){try{Path saved=get();if(gallery!=null&&gallery.isDisplayable())gallery.reload(saved);if(multitask){revealExit();multitaskTargetLabel.setText("Screenshot saved");multitaskTargetLabel.setVisible(true);inputNoticeTimer.restart();}}catch(Exception error){showNotice("Screenshot","Could not save: "+error.getMessage());}}}.execute();}
+    private void captureMultitaskScreenshot(boolean region){
+        if(!multitask||snapshotPending||screenshotSelection!=null)return;snapshotPending=true;
+        GraphicsConfiguration screen=multitaskWindow.getGraphicsConfiguration();Rectangle bounds=multitaskWindow.getBounds();
+        multitaskControls.setVisible(false);if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();
+        javax.swing.Timer settle=new javax.swing.Timer(40,e->new SwingWorker<java.awt.image.BufferedImage,Void>(){
+            protected java.awt.image.BufferedImage doInBackground()throws Exception{Rectangle physical=PreviewPanel.toPhysicalScreenBounds(bounds,screen);long target=app.multimin.backend.NativeWindowCompositor.destination(physical.x,physical.y,physical.width,physical.height);int affinity=app.multimin.backend.NativeWindowCompositor.captureAffinity(target,0);if(affinity<0)throw new IllegalStateException("Could not capture multitask composition");java.awt.image.MultiResolutionImage capture;try{capture=new Robot(screen.getDevice()).createMultiResolutionScreenCapture(bounds);}finally{app.multimin.backend.NativeWindowCompositor.captureAffinity(target,affinity);}Image best=capture.getResolutionVariants().stream().max(java.util.Comparator.comparingLong(i->(long)i.getWidth(null)*i.getHeight(null))).orElseThrow();java.awt.image.BufferedImage image=new java.awt.image.BufferedImage(best.getWidth(null),best.getHeight(null),java.awt.image.BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.drawImage(best,0,0,null);g.dispose();return image;}
+            protected void done(){snapshotPending=false;if(!multitask)return;try{var image=get();if(region){backend.send("{\"command\":\"screenshot_selection\",\"enabled\":true}");screenshotSelection=new ScreenshotSelection(multitaskWindow,bounds,image,palette,MainWindow.this::saveMultitaskScreenshot,()->{screenshotSelection=null;if(multitask&&multitaskWindow!=null){multitaskWindow.setVisible(true);multitaskWindow.toFront();}backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(multitask&&exitHoverTimer!=null)exitHoverTimer.start();});multitaskWindow.setVisible(false);screenshotSelection.setVisible(true);screenshotSelection.toFront();screenshotSelection.requestFocus();}else{saveMultitaskScreenshot(image);exitHoverTimer.start();}}catch(Exception | LinkageError error){if(screenshotSelection!=null){screenshotSelection.dispose();screenshotSelection=null;}if(multitask&&multitaskWindow!=null)multitaskWindow.setVisible(true);backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(exitHoverTimer!=null)exitHoverTimer.start();showNotice("Screenshot","Could not capture: "+error.getMessage());}}
+        }.execute());settle.setRepeats(false);settle.start();
+    }
     private ScreenshotGallery gallery;
     private boolean snapshotPending;
     private boolean shuttingDown;
@@ -161,7 +176,7 @@ public final class MainWindow extends JFrame {
             if(source.kind==Source.Kind.IMAGE && !source.imagePath.isBlank())try{source.liveFrame=ImageIO.read(Path.of(source.imagePath).toFile());}catch(Exception ignored){source.activeCaptureBackend="Image file unavailable";}
         }
         preview = new PreviewPanel(palette, activeView);
-        preview.setNativePresentationAllowed(performanceFps==0 || performanceFps>=GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode().getRefreshRate());
+        preview.setNativePresentationAllowed(performanceFps==0 || performanceFps>=currentMonitorRefreshRate());
         preview.onSelectionChanged(index -> sourceList.setSelectedIndex(index));
         preview.onSourceChanged(this::syncSelection);
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
@@ -170,12 +185,18 @@ public final class MainWindow extends JFrame {
         buildUi();
         bindShortcuts();
         backend.setQuickSwapHandler(event -> SwingUtilities.invokeLater(() -> {
-            if ("quick_swap".equals(event) && multitask) cycleQuickSwapTarget();
+            if ("screenshot_full".equals(event) && multitask) captureMultitaskScreenshot(false);
+            else if ("screenshot_region".equals(event) && multitask) captureMultitaskScreenshot(true);
+            else if ("quick_swap".equals(event) && multitask) cycleQuickSwapTarget();
             else if ("layer_swap".equals(event) && multitask) swapVisibleLayers();
             else if ("visual_stack_applied".equals(event) && multitask) {
-                if (multitaskWindow != null) multitaskWindow.toFront();
-                if (multitaskControls != null) multitaskControls.toFront();
-                backend.send("{\"command\":\"refresh_overlay_hit_test\"}");
+                if (screenshotSelection != null) {
+                    screenshotSelection.toFront();
+                } else {
+                    if (multitaskWindow != null) multitaskWindow.toFront();
+                    if (multitaskControls != null) multitaskControls.toFront();
+                    backend.send("{\"command\":\"refresh_overlay_hit_test\"}");
+                }
             }
             else if ("toggle_multitask".equals(event)) setMultitask(!multitask);
         }));
@@ -258,7 +279,7 @@ public final class MainWindow extends JFrame {
         performanceTimer = new javax.swing.Timer(1000, event -> refreshPerformanceStats());
         performanceStatus.setVisible(preferences.getBoolean("showPerformanceStats", false));
         performanceTimer.start();
-        backend.setCaptureFps(effectiveCaptureFps());
+        backend.setCaptureFps(effectiveCaptureFps(), performanceFps == 0);
         backend.setFrameReadyHandler(() -> {
             newFramePending.set(true);
             requestWindowFrames();
@@ -709,17 +730,20 @@ public final class MainWindow extends JFrame {
         return false;
     }
 
-    private int effectiveCaptureFps() {
+    private int currentMonitorRefreshRate() {
         GraphicsConfiguration configuration = preview == null ? getGraphicsConfiguration() : preview.getGraphicsConfiguration();
         int refresh = (configuration == null ? GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
             : configuration.getDevice()).getDisplayMode().getRefreshRate();
-        if (refresh <= 0) refresh = 60;
+        return refresh > 0 ? refresh : 60;
+    }
+    private int effectiveCaptureFps() {
+        int refresh=currentMonitorRefreshRate();
         return Math.max(1, Math.min(1000, performanceFps == 0 ? refresh : Math.min(performanceFps, refresh)));
     }
 
     private void applyPerformanceFps(int fps) {
-        performanceFps = Math.max(0, Math.min(240, fps));
-        preview.setNativePresentationAllowed(performanceFps==0 || performanceFps>=GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDisplayMode().getRefreshRate());
+        performanceFps = Math.max(0, Math.min(1000, fps));
+        preview.setNativePresentationAllowed(performanceFps==0 || performanceFps>=currentMonitorRefreshRate());
         preferences.putInt("captureFps", performanceFps);
         preferences.putBoolean("captureFpsChoiceV2", true);
         lastAppliedCaptureFps = effectiveCaptureFps();
@@ -729,7 +753,7 @@ public final class MainWindow extends JFrame {
             int refresh = i < screens.length ? screens[i].getDisplayMode().getRefreshRate() : 0;
             displayCaptures.get(i).setTargetFps(Math.min(effectiveCaptureFps(), refresh > 0 ? refresh : 60));
         }
-        backend.setCaptureFps(effectiveCaptureFps());
+        backend.setCaptureFps(effectiveCaptureFps(), performanceFps == 0);
     }
 
     private void refreshPerformanceStats() {
@@ -862,7 +886,7 @@ public final class MainWindow extends JFrame {
         styleCombo(stagedAccent); stagedAccent.setFocusable(false); stagedAccent.setSelectedItem(accentMode.getSelectedItem());
         stagedAccent.setPreferredSize(new Dimension(150, 30));
         fields.add(settingsRow("Accent colour", "Highlights and active controls", stagedAccent));
-        fields = settingsPage(); tabs.addTab("Controls", fields);
+        fields = settingsPage(); JScrollPane controlsScroll=new JScrollPane(fields);controlsScroll.setBorder(null);controlsScroll.getViewport().setOpaque(false);controlsScroll.setOpaque(false);controlsScroll.getVerticalScrollBar().setUnitIncrement(20);styleScrollBar(controlsScroll.getVerticalScrollBar());tabs.addTab("Controls", controlsScroll);
         fields.add(settingsGroup("Keyboard shortcuts"));
         swapKeyButton = toolButton(prettyKeyBinding(swapKeyBinding), "Click to record a key or key combination");
         styleKeyButton(swapKeyButton);
@@ -875,6 +899,9 @@ public final class MainWindow extends JFrame {
         stopKeyButton = toolButton(prettyKeyBinding(stopKeyBinding), "Click to record the stop-multitasking key");
         styleKeyButton(stopKeyButton);
         stopKeyButton.addActionListener(event -> { recordingStopKey = true; stopKeyButton.setText("Press keys…  ·  Esc to cancel"); }); fields.add(settingsRow("Stop multitasking", "Exit the overlay", stopKeyButton));
+        JButton fullScreenshotButton=screenshotKeyRecorder(screenshotKey), regionScreenshotButton=screenshotKeyRecorder(regionScreenshotKey);
+        fields.add(settingsRow("Screenshot", "Full multitask view · multitask mode only",fullScreenshotButton));
+        fields.add(settingsRow("Region screenshot", "Drag a rectangle · multitask mode only",regionScreenshotButton));
         fields.add(settingsGroup("Multitasking"));
         JComboBox<String> corner = new JComboBox<>(new String[]{"Top-center", "Top-left", "Top-right", "Bottom-left", "Bottom-right"}); styleCombo(corner); corner.setSelectedIndex(revealCornerIndex); corner.setPreferredSize(new Dimension(150, 30)); fields.add(settingsRow("Exit button corner", "Position of the overlay close button", corner));
         fields = settingsPage(); tabs.addTab("Performance", fields);
@@ -891,6 +918,7 @@ public final class MainWindow extends JFrame {
         JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); JButton cancel = toolButton("Cancel", "Close without applying"); cancel.addActionListener(event -> dialog.dispose());
         Runnable applySettings = () -> {
             recordingSwapKey = false; recordingStopKey = false; recordingLayerSwapKey = false;
+            screenshotKey=(String)fullScreenshotButton.getClientProperty("binding");regionScreenshotKey=(String)regionScreenshotButton.getClientProperty("binding");preferences.putString("screenshotKey",screenshotKey);preferences.putString("regionScreenshotKey",regionScreenshotKey);configureScreenshotKeys();
             swapKeyBinding = stagedSwapKeyBinding; layerSwapKeyBinding = stagedLayerSwapKeyBinding; stopKeyBinding = stagedStopKeyBinding;
             preferences.putString("swapInputKey", swapKeyBinding); preferences.putString("swapLayersKey", layerSwapKeyBinding); preferences.putString("stopKey", stopKeyBinding);
             updateHotkeyHints();
@@ -967,9 +995,6 @@ public final class MainWindow extends JFrame {
         if (button != null) button.setText(value == null || value.isBlank() ? "Unassigned" : prettyKeyBinding(value));
     }
     private void styleScrollBar(JScrollBar bar) { ModernUi.scroll(bar,palette); }
-    private JButton zeroScrollButton() {
-        JButton button = new JButton(); button.setPreferredSize(new Dimension(0, 0)); button.setMinimumSize(new Dimension(0, 0)); button.setMaximumSize(new Dimension(0, 0)); button.setFocusable(false); return button;
-    }
     private boolean loadImageSource() {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Choose an image source");
@@ -1146,7 +1171,7 @@ public final class MainWindow extends JFrame {
             showNotice("Multitask input unavailable", "The Python input service has not started. Check the status bar and restart MultiMin from this build.");
             return;
         }
-        if (multitask == enabled) return; multitask = enabled; GraphicsDevice device = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+        if (multitask == enabled) return; multitask = enabled; GraphicsDevice device = getGraphicsConfiguration().getDevice();
         preview.setLocked(enabled);
         if (enabled) {
             refreshDisplayCaptureActivity();
@@ -1195,9 +1220,10 @@ public final class MainWindow extends JFrame {
             exitHoverTimer=new javax.swing.Timer(100,event->{if(exitHotspot!=null&&MouseInfo.getPointerInfo()!=null&&exitHotspot.contains(MouseInfo.getPointerInfo().getLocation()))revealExit();});exitHoverTimer.start();updateControlIndicator();revealExit();overlayControlRegion(true);
             PythonBridge.prepareNativeDisplayCapture();
             setVisible(false);
-            backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
+            configureScreenshotKeys();backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
             SwingUtilities.invokeLater(() -> { refreshNativeLayerLayout(); setControlTarget(activeView.controlSource); });
         } else {
+            if(screenshotSelection!=null)screenshotSelection.dispose();
             if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();exitHotspot=null;
             backend.setMultitaskOverlay(false, false, stopKeyBinding);
             if (inputNoticeTimer != null) { inputNoticeTimer.stop(); inputNoticeTimer = null; }
@@ -1318,7 +1344,7 @@ public final class MainWindow extends JFrame {
     }
 
     private synchronized void shutdownServices() {
-        shuttingDown=true;backend.setSnapshotHandler(ignored -> {});
+        shuttingDown=true;if(screenshotSelection!=null)screenshotSelection.dispose();if(multitask){backend.setMultitaskOverlay(false,false,stopKeyBinding);multitask=false;}if(multitaskControls!=null)multitaskControls.dispose();if(multitaskWindow!=null)multitaskWindow.dispose();backend.setSnapshotHandler(ignored -> {});
         if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();if(snapshotTimeout!=null)snapshotTimeout.stop();if(gallery!=null)gallery.dispose();
         if (workspaceTimer != null) workspaceTimer.stop();
         saveWorkspace();

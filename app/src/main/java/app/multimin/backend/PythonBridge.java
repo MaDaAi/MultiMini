@@ -74,6 +74,8 @@ public final class PythonBridge implements AutoCloseable {
                         flushPendingCommands();
                         while ((line = reader.readLine()) != null) {
                             if (line.contains("\"event\":\"frame_ready\"")) frameReadyHandler.run();
+                            else if (line.contains("\"event\":\"screenshot_region\"")) quickSwapHandler.accept("screenshot_region");
+                            else if (line.contains("\"event\":\"screenshot_full\"")) quickSwapHandler.accept("screenshot_full");
                             else if (line.contains("\"event\":\"quick_swap\"")) quickSwapHandler.accept("quick_swap");
                             else if (line.contains("\"event\":\"layer_swap\"")) quickSwapHandler.accept("layer_swap");
                             else if (line.contains("\"event\":\"layer_layout_changed\"")) quickSwapHandler.accept("visual_stack_applied");
@@ -134,6 +136,7 @@ public final class PythonBridge implements AutoCloseable {
     }
     public void requestSnapshot() { send("{\"command\":\"snapshot\",\"temporary\":true}"); }
     public void setOpacity(int value) { send("{\"command\":\"set_opacity\",\"value\":" + value + "}"); }
+    public void setCaptureFps(int value, boolean sourcePaced) { send("{\"command\":\"set_capture_fps\",\"value\":" + value + ",\"source_paced\":" + sourcePaced + "}"); }
     public void setCaptureFps(int value) { send("{\"command\":\"set_capture_fps\",\"value\":" + value + "}"); }
     public void setInputTarget(String name) { setInputTarget(name, 0); }
     public void setInputTarget(String name, long hwnd) { setInputTarget(name, hwnd, 0, 0, 0, 0, 0, 0, 0, 0); }

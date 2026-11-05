@@ -56,7 +56,7 @@ public final class WindowFrameReader implements AutoCloseable {
                 if (!sharedEnabled || nameSize <= 0 || nameSize > 200) throw new IOException("Invalid shared frame response");
                 String mappingName = new String(input.readNBytes(nameSize), StandardCharsets.US_ASCII);
                 if (!mappingName.startsWith("Local\\MultiMiniFrame-")) throw new IOException("Invalid shared frame name");
-                if (!mappingName.equals(sharedName) || bytes != sharedBytes) {
+                if (!mappingName.equals(sharedName) || bytes > sharedBytes) {
                     releaseSharedMapping();
                     sharedMapping = SharedFrameBridge.open(mappingName, (int) bytes);
                     if (sharedMapping == 0) { sharedEnabled = false; throw new IOException("Shared frame mapping failed; using socket fallback"); }

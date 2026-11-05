@@ -304,6 +304,7 @@ class WindowsInputBridge:
             self._unregister_hotkeys()
 
     def close(self) -> None:
+        self.screenshot_selecting = False
         self._restore_layer_windows()
         self._restore_aligned_window()
         self._release_mouse_buttons()
@@ -475,6 +476,8 @@ class WindowsInputBridge:
         retry.start()
 
     def _reassert_visual_stack(self) -> None:
+        if getattr(self, "screenshot_selecting", False):
+            return
         if not self._layer_layout_active:
             return
         flags = self.SWP_NOMOVE | self.SWP_NOSIZE | self.SWP_NOACTIVATE
@@ -1185,6 +1188,26 @@ class WindowsInputBridge:
                     vk = int(data.vkCode)
                     right_control = vk == self.VK_RCONTROL or (vk == self.VK_CONTROL and bool(data.flags & self.LLKHF_EXTENDED))
                     normalized = self.VK_RCONTROL if right_control else vk
+                    if getattr(self, "screenshot_selecting", False):
+                        if key_down:
+                            self._pressed_keys.add(normalized)
+                        if key_up:
+                            self._pressed_keys.discard(normalized)
+                            getattr(self, "_screenshot_consumed", set()).discard(normalized)
+                        return self.user32.CallNextHookEx(self._keyboard_hook, code, message, data_pointer)
+                    consumed = getattr(self, "_screenshot_consumed", set())
+                    if key_up and normalized in consumed:
+                        consumed.discard(normalized)
+                        self._pressed_keys.discard(normalized)
+                        return 1
+                    if key_down:
+                        for binding, event_name in getattr(self, "screenshot_bindings", []):
+                            if self._matches_binding(binding, normalized):
+                                if normalized not in consumed:
+                                    consumed.add(normalized)
+                                    self.emit({"event": event_name})
+                                self._screenshot_consumed = consumed
+                                return 1
                     emergency_release = key_up and normalized == self.VK_SPACE and self._emergency_key_down
                     stop_release = key_up and normalized == self._binding_key_code(self._stop_binding.split("+")[-1]) and self._stop_key_down
                     swap_key = self._matches_swap_key(normalized)
@@ -1251,6 +1274,8 @@ class WindowsInputBridge:
                 mouse_hook_type = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
 
                 def handle_mouse(code, message, data_pointer):
+                    if getattr(self, "screenshot_selecting", False):
+                        return self.user32.CallNextHookEx(self._mouse_hook, code, message, data_pointer)
                     if code >= 0:
                         try:
                             data = ctypes.cast(data_pointer, ctypes.POINTER(_MouseHookData)).contents

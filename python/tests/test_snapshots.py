@@ -61,3 +61,16 @@ class ScreenshotTests(unittest.TestCase):
         service.native_input.set_overlay_control_region.assert_called_once_with((1,2,38,38))
         service.native_input.set_mouse_target.assert_not_called()
         service.native_input.focus_window.assert_not_called()
+
+    def test_multitask_screenshot_bindings_prioritize_region(self):
+        service = CaptureService.__new__(CaptureService)
+        service.native_input = MagicMock()
+        service.dispatch({'command': 'screenshot_shortcuts', 'full': 'INSERT', 'region': 'SHIFT+INSERT'})
+        self.assertEqual(service.native_input.screenshot_bindings, [('SHIFT+INSERT', 'screenshot_region'), ('INSERT', 'screenshot_full')])
+
+    def test_selection_temporarily_releases_input_without_focusing_target(self):
+        service = CaptureService.__new__(CaptureService)
+        service.native_input = MagicMock()
+        service.dispatch({'command': 'screenshot_selection', 'enabled': True})
+        self.assertTrue(service.native_input.screenshot_selecting)
+        service.native_input.focus_window.assert_not_called()
