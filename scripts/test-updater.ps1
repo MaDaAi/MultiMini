@@ -3,10 +3,12 @@ $script=Join-Path (Split-Path -Parent $PSScriptRoot) 'app\src\main\resources\app
 $name='MultiMini-Setup-0.02-Windows-x64.exe';$url='https://github.com/MaDaAi/MultiMini/releases/download/v0.02-beta/'+$name
 $payload=[Text.Encoding]::UTF8.GetBytes('Test payload; never executed')
 $hash=[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($payload)).Replace('-','').ToLowerInvariant()
-function Invoke-RestMethod { param($Uri,$Headers,$TimeoutSec) @([pscustomobject]@{draft=$false;assets=@([pscustomobject]@{name=$name;browser_download_url=$url},[pscustomobject]@{name=($name+'.sha256');browser_download_url=($url+'.sha256')})}) }
+function Invoke-RestMethod { param($Uri,$Headers,$TimeoutSec) @([pscustomobject]@{draft=$false;body="## Plain English`n- The app icon looks right.`n`n## Detailed`n- Corrected Windows relaunch metadata.";assets=@([pscustomobject]@{name=$name;browser_download_url=$url},[pscustomobject]@{name=($name+'.sha256');browser_download_url=($url+'.sha256')})}) }
 function Invoke-WebRequest { param($Uri,$OutFile,[switch]$UseBasicParsing,$TimeoutSec) if($Uri.EndsWith('.sha256')){[IO.File]::WriteAllText($OutFile,"$hash  $name")}else{[IO.File]::WriteAllBytes($OutFile,$payload)} }
 $result=& $script -CurrentVersion '0.02';if($result -ne 'NONE'){throw 'Downgrade/same-version guard failed'}
 $result=& $script -CurrentVersion '0.01';if($result -ne '0.02'){throw 'Release discovery failed'}
+$details=& $script -CurrentVersion '0.01' -Details
+if($details.Count -ne 2 -or [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($details[1])) -notlike '*Plain English*'){throw 'Changelog metadata failed'}
 $prepared=& $script -CurrentVersion '0.01' -Prepare
 if($LASTEXITCODE -ne 0 -or $prepared.Count -ne 2 -or $prepared[1] -ne $hash){throw 'Verified preparation failed'}
 try{if((Get-FileHash -LiteralPath $prepared[0] -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash){throw 'Prepared payload differs'}}finally{Remove-Item -LiteralPath $prepared[0],($prepared[0]+'.sha256') -Force;[IO.Directory]::Delete([IO.Path]::GetDirectoryName($prepared[0]))}

@@ -1,4 +1,4 @@
-param([switch]$Prepare,[switch]$Apply,[string]$CurrentVersion='0.01',[string]$Prepared='', [string]$ExpectedHash='', [int]$AppPid=0,[string]$InstallDir='')
+param([switch]$Details,[string]$TargetVersion='',[switch]$Prepare,[switch]$Apply,[string]$CurrentVersion='0.01',[string]$Prepared='', [string]$ExpectedHash='', [int]$AppPid=0,[string]$InstallDir='')
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 try {
@@ -20,10 +20,10 @@ try {
  try { $releases=Invoke-RestMethod -Uri 'https://api.github.com/repos/MaDaAi/MultiMini/releases?per_page=10' -Headers $headers -TimeoutSec 30 }
  catch { if($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404){Write-Output 'PRIVATE';exit 0};throw }
  $candidate=$null
- foreach($release in $releases){if($release.draft -or $release.prerelease){continue};foreach($asset in $release.assets){if($asset.name -match '^MultiMini-Setup-([0-9.]+)-Windows-x64\.exe$'){$version=$Matches[1];if([version]$version -gt [version]$CurrentVersion -and (!$candidate -or [version]$version -gt [version]$candidate.Version)){$sum=$release.assets | Where-Object name -eq ($asset.name+'.sha256') | Select-Object -First 1;if($sum){$candidate=[pscustomobject]@{Version=$version;Asset=$asset;Sum=$sum}}}}}}
+ foreach($release in $releases){if($release.draft -or $release.prerelease){continue};foreach($asset in $release.assets){if($asset.name -match '^MultiMini-Setup-([0-9.]+)-Windows-x64\.exe$'){$version=$Matches[1];if((!$TargetVersion -or $version -eq $TargetVersion) -and [version]$version -gt [version]$CurrentVersion -and (!$candidate -or [version]$version -gt [version]$candidate.Version)){$sum=$release.assets | Where-Object name -eq ($asset.name+'.sha256') | Select-Object -First 1;if($sum){$candidate=[pscustomobject]@{Version=$version;Asset=$asset;Sum=$sum;Notes=[string]$release.body}}}}}}
  if(!$candidate){Write-Output 'NONE';exit 0}
  foreach($url in @($candidate.Asset.browser_download_url,$candidate.Sum.browser_download_url)){if(-not $url.StartsWith('https://github.com/MaDaAi/MultiMini/releases/download/',[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected update source'}}
- if(!$Prepare){Write-Output $candidate.Version;exit 0}
+ if(!$Prepare){Write-Output $candidate.Version;if($Details){Write-Output ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($candidate.Notes)))};exit 0}
  $stage=Join-Path $cache ([guid]::NewGuid().ToString());New-Item -ItemType Directory -Force $stage | Out-Null
  $exe=Join-Path $stage $candidate.Asset.name
  Invoke-WebRequest -Uri $candidate.Sum.browser_download_url -OutFile ($exe+'.sha256') -UseBasicParsing -TimeoutSec 60
