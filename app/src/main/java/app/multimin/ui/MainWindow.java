@@ -38,7 +38,7 @@ public final class MainWindow extends JFrame {
     private final JPanel topBar = new GlassPanel(palette);
     private final JList<Source> sourceList = new JList<>();
     private final JLabel viewTitle = new JLabel();
-    private final JTextArea layerTitle = new JTextArea("Media");
+    private final JLabel layerTitle = new JLabel("No source selected", SwingConstants.CENTER);
     private final JLabel backendStatus = new JLabel("Starting capture service…");
     private final JLabel performanceStatus = new JLabel();
     private final JLabel inputKeyHint = new JLabel();
@@ -97,6 +97,44 @@ public final class MainWindow extends JFrame {
     private JButton multitaskExitButton;
     private JLabel multitaskTargetLabel;
     private javax.swing.Timer inputNoticeTimer;
+    private ScreenshotGallery gallery;
+    private boolean snapshotPending;
+    private boolean shuttingDown;
+    private javax.swing.Timer snapshotTimeout, exitHideTimer, exitHoverTimer;
+    private Rectangle exitHotspot;
+    private void openGallery() { if(gallery==null||!gallery.isDisplayable()) gallery=new ScreenshotGallery(palette); gallery.setVisible(true); gallery.toFront(); }
+    private void takeSnapshot() {
+        if(snapshotPending)return;
+        if(!backend.isReady()){snapshotPending=true;captureSnapshotFallback();return;}
+        snapshotPending=true;
+        backend.setSnapshotHandler(result -> SwingUtilities.invokeLater(()->{
+            if(shuttingDown)return; snapshotPending=false;if(snapshotTimeout!=null)snapshotTimeout.stop();
+            if(result.startsWith("ERROR:")){snapshotPending=true;captureSnapshotFallback();}
+            else {openGallery();gallery.reload(Path.of(result));}
+        }));
+        snapshotTimeout=new javax.swing.Timer(30000,e->{snapshotPending=false;showNotice("Screenshot","Capture did not respond. Please try again.");});snapshotTimeout.setRepeats(false);snapshotTimeout.start();backend.requestSnapshot();
+    }
+    private void captureSnapshotFallback() {
+        // A loose JAR need not have Pillow installed. Use Java's built-in screen
+        // capture at native pixel dimensions for the monitor containing this app.
+        GraphicsConfiguration screen=getGraphicsConfiguration();
+        new SwingWorker<Path,Void>() {
+            @Override protected Path doInBackground() throws Exception {
+                java.awt.image.MultiResolutionImage capture=new Robot(screen.getDevice()).createMultiResolutionScreenCapture(screen.getBounds());
+                Image best=capture.getResolutionVariants().stream().max(java.util.Comparator.comparingLong(i->(long)i.getWidth(null)*i.getHeight(null))).orElseThrow();
+                java.awt.image.BufferedImage image=new java.awt.image.BufferedImage(best.getWidth(null),best.getHeight(null),java.awt.image.BufferedImage.TYPE_INT_RGB);
+                Graphics2D pixels=image.createGraphics();pixels.drawImage(best,0,0,null);pixels.dispose();
+                return new ScreenshotStore().save(image);
+            }
+            @Override protected void done() {if(shuttingDown)return;snapshotPending=false;try{Path path=get();openGallery();gallery.reload(path);}catch(Exception error){showNotice("Screenshot","Could not capture the screen: "+error.getMessage());}}
+        }.execute();
+    }
+    private void overlayControlRegion(boolean visible) {
+        Rectangle r=visible&&exitHotspot!=null ? PreviewPanel.toPhysicalScreenBounds(exitHotspot,multitaskControls.getGraphicsConfiguration()) : new Rectangle();
+        backend.send("{\"command\":\"set_overlay_control_region\",\"x\":"+r.x+",\"y\":"+r.y+",\"width\":"+r.width+",\"height\":"+r.height+"}");
+    }
+    private void revealExit() { if(multitaskControls==null)return;boolean wasVisible=multitaskControls.isVisible();multitaskControls.setVisible(true);if(!wasVisible)overlayControlRegion(true);if(exitHideTimer!=null)exitHideTimer.restart(); }
+
     private View activeView;
     private boolean multitask;
     private final WorkspaceStore workspaceStore = new WorkspaceStore();
@@ -281,7 +319,8 @@ public final class MainWindow extends JFrame {
         JButton visibility = toolButton("◉", "Show or hide selected source"); visibility.addActionListener(event -> toggleSelectedVisibility()); controls.add(visibility);
         JButton up = toolButton("↑", "Move source up"); up.addActionListener(event -> moveSelected(-1)); controls.add(up);
         JButton down = toolButton("↓", "Move source down"); down.addActionListener(event -> moveSelected(1)); controls.add(down);
-        footer.add(controls); footer.add(muted("Drag to reorder  ·  Double-click to configure · F2 to rename"));
+        footer.add(controls);
+        JTextArea sourceHint=new JTextArea("Drag to reorder · Double-click to configure\nF2 to rename");sourceHint.setOpaque(false);sourceHint.setEditable(false);sourceHint.setFocusable(false);sourceHint.setLineWrap(true);sourceHint.setWrapStyleWord(true);sourceHint.setForeground(palette.muted);sourceHint.setFont(UIManager.getFont("Label.font").deriveFont(11f));footer.add(sourceHint);
         inputKeyHint.setForeground(palette.muted); layerKeyHint.setForeground(palette.muted); updateHotkeyHints();
         footer.add(inputKeyHint); footer.add(layerKeyHint);
         panel.add(footer, BorderLayout.SOUTH); switchView(activeView); return panel;
@@ -297,20 +336,7 @@ public final class MainWindow extends JFrame {
             split.setContinuousLayout(true); split.setOneTouchExpandable(false); split.setBorder(null);
             split.setDividerSize(4); split.setResizeWeight(split == inner ? 0.0 : 1.0);
             split.setBackground(palette.background);
-            split.setUI(new javax.swing.plaf.basic.BasicSplitPaneUI() {
-                @Override public BasicSplitPaneDivider createDefaultDivider() {
-                    return new BasicSplitPaneDivider(this) {
-                        @Override public void paint(Graphics graphics) {
-                            Graphics2D g = (Graphics2D) graphics.create();
-                            g.setColor(palette.accent); g.fillRect(0, 0, getWidth(), getHeight());
-                            g.setColor(Palette.contrastText(palette.accent));
-                            int cx = getWidth() / 2, cy = getHeight() / 2;
-                            g.fillRoundRect(cx - 1, cy - 12, 2, 24, 2, 2);
-                            g.dispose();
-                        }
-                    };
-                }
-            });
+            ModernUi.split(split,palette);
             split.setMinimumSize(new Dimension(0, 0));
         }
         sourcesPanelRef.setMinimumSize(new Dimension(70, 0));
@@ -330,15 +356,16 @@ public final class MainWindow extends JFrame {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(new EmptyBorder(16, 16, 14, 16));
         panel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        panel.add(muted("SELECTED SOURCE"));
-        layerTitle.setFont(layerTitle.getFont().deriveFont(Font.BOLD, 19f));
-        layerTitle.setOpaque(false); layerTitle.setForeground(palette.text); layerTitle.setEditable(false); layerTitle.setFocusable(false); layerTitle.setLineWrap(true); layerTitle.setWrapStyleWord(true);
-        layerTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 54));
+        JLabel selectedHeading=muted("SELECTED SOURCE"); selectedHeading.setMaximumSize(new Dimension(Integer.MAX_VALUE,24)); selectedHeading.setHorizontalAlignment(SwingConstants.LEFT); selectedHeading.setAlignmentX(Component.CENTER_ALIGNMENT); panel.add(selectedHeading);
+        layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23));
+        layerTitle.setOpaque(false); layerTitle.setForeground(palette.text);
+        layerTitle.setBorder(new EmptyBorder(2,2,2,2));
+        layerTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
         layerTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
         layerTitle.setOpaque(false);
         panel.add(layerTitle);
         panel.add(Box.createVerticalStrut(20));
-        panel.add(sectionTitle("APPEARANCE"));
+        panel.add(centeredSection("APPEARANCE"));
         panel.add(Box.createVerticalStrut(10));
         JPanel opacityRow = transparent(new BorderLayout());
         opacityRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22)); opacityRow.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -373,7 +400,7 @@ public final class MainWindow extends JFrame {
         });
         panel.add(scale);
         panel.add(Box.createVerticalStrut(18));
-        panel.add(sectionTitle("SOURCE TOOLS"));
+        panel.add(centeredSection("SOURCE TOOLS"));
         panel.add(Box.createVerticalStrut(10));
         JButton configureSource = toolButton("Configure source…", "Change target or capture method");
         configureSource.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30)); configureSource.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -389,8 +416,8 @@ public final class MainWindow extends JFrame {
         hint.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38)); hint.setAlignmentX(Component.CENTER_ALIGNMENT);
         panel.add(hint);
         panel.add(Box.createVerticalGlue());
-        JPanel modeActions = new GlassPanel(palette); modeActions.setLayout(new GridLayout(0, 1, 0, 8)); modeActions.setBorder(new EmptyBorder(12, 12, 12, 12)); modeActions.setMaximumSize(new Dimension(Integer.MAX_VALUE, 156)); modeActions.setAlignmentX(Component.CENTER_ALIGNMENT);
-        modeActions.add(muted("MULTITASK")); JButton snapshot = quietButton("Snapshot"); snapshot.addActionListener(event -> { backend.requestSnapshot(); showNotice("Snapshot", "Temporary snapshot requested. It will be deleted after seven days."); }); modeActions.add(snapshot);
+        JPanel modeActions = new GlassPanel(palette); modeActions.setLayout(new GridLayout(0, 1, 0, 8)); modeActions.setBorder(new EmptyBorder(12, 12, 12, 12)); modeActions.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200)); modeActions.setAlignmentX(Component.CENTER_ALIGNMENT);
+        modeActions.add(muted("MULTITASK")); JButton snapshot = quietButton("Snapshot"); snapshot.addActionListener(event -> { takeSnapshot(); }); modeActions.add(snapshot); JButton galleryButton=quietButton("Gallery");galleryButton.addActionListener(event->openGallery());modeActions.add(galleryButton);
         JButton start = primaryButton("Start multitasking"); start.addActionListener(event -> setMultitask(true)); modeActions.add(start);
         JButton settings = quietButton("Settings"); settings.addActionListener(event -> showMultitaskSettings()); modeActions.add(settings);
         panel.add(modeActions);
@@ -399,7 +426,7 @@ public final class MainWindow extends JFrame {
     }
 
     private void switchView(View view) { if (multitask) return; activeView = view; for (Map.Entry<View, AbstractButton> entry : viewButtons.entrySet()) entry.getValue().setSelected(entry.getKey() == view); viewTitle.setText(view.name); sourceList.setModel(view.sources); sourceList.setSelectedIndex(Math.min(1, view.sources.size() - 1)); preview.setView(view); }
-    private void syncSelection() { Source source = sourceList.getSelectedValue(); if (source != null) { layerTitle.setText(source.name); opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
+    private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23)); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
     private void setControlTarget(int index) {
         if (index < 0 || index >= activeView.sources.size()) return;
         activeView.controlSource = index;
@@ -457,7 +484,7 @@ public final class MainWindow extends JFrame {
         if (multitaskExitButton == null || activeView.sources.isEmpty()) return;
         int i = Math.max(0, Math.min(activeView.controlSource, activeView.sources.size() - 1));
         Color color = activeView.sources.get(i).controlColor;
-        multitaskExitButton.setBackground(color.darker()); multitaskExitButton.setBorder(BorderFactory.createLineBorder(color, 2));
+        multitaskExitButton.setBackground(color); revealExit();
         multitaskExitButton.repaint();
         if (multitaskTargetLabel != null && multitaskControls != null && multitaskControls.isVisible()) {
             Source source = activeView.sources.get(i);
@@ -471,7 +498,7 @@ public final class MainWindow extends JFrame {
     }
     private Rectangle multitaskCaptureExclusion() {
         if (multitaskControls != null && multitaskControls.isVisible()) return multitaskControls.getBounds();
-        return getBounds();
+        return multitask ? null : getBounds();
     }
     private String keyBindingForEvent(KeyEvent event) {
         int code = event.getKeyCode();
@@ -540,7 +567,7 @@ public final class MainWindow extends JFrame {
         String topName = activeView.sources.get(visibleIndices.get(0)).name;
         backendStatus.setText("Visual top: " + topName + " · input stays on " + controlled.name);
         if (multitaskTargetLabel != null) {
-            multitaskTargetLabel.setText("Top: " + topName);
+            revealExit();multitaskTargetLabel.setText("Top: " + topName);
             multitaskTargetLabel.setVisible(true);
             if (inputNoticeTimer != null) inputNoticeTimer.restart();
         }
@@ -939,28 +966,7 @@ public final class MainWindow extends JFrame {
     private void updateRecordingButton(JButton button, String value) {
         if (button != null) button.setText(value == null || value.isBlank() ? "Unassigned" : prettyKeyBinding(value));
     }
-    private void styleScrollBar(JScrollBar bar) {
-        bar.setUI(new javax.swing.plaf.basic.BasicScrollBarUI() {
-            @Override protected void configureScrollBarColors() {
-                thumbColor = palette.accent; trackColor = palette.primary;
-            }
-            @Override protected JButton createDecreaseButton(int orientation) { return zeroScrollButton(); }
-            @Override protected JButton createIncreaseButton(int orientation) { return zeroScrollButton(); }
-            @Override protected void paintThumb(Graphics graphics, JComponent component, Rectangle bounds) {
-                if (bounds.isEmpty() || !component.isEnabled()) return;
-                Graphics2D g = (Graphics2D) graphics.create();
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g.setColor(new Color(palette.accent.getRed(), palette.accent.getGreen(), palette.accent.getBlue(), 205));
-                g.fillRoundRect(bounds.x + 2, bounds.y + 2, Math.max(3, bounds.width - 4), Math.max(8, bounds.height - 4), 8, 8);
-                g.dispose();
-            }
-            @Override protected void paintTrack(Graphics graphics, JComponent component, Rectangle bounds) {
-                Graphics2D g = (Graphics2D) graphics.create();
-                g.setColor(palette.primary); g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height); g.dispose();
-            }
-        });
-        bar.setPreferredSize(new Dimension(10, 10));
-    }
+    private void styleScrollBar(JScrollBar bar) { ModernUi.scroll(bar,palette); }
     private JButton zeroScrollButton() {
         JButton button = new JButton(); button.setPreferredSize(new Dimension(0, 0)); button.setMinimumSize(new Dimension(0, 0)); button.setMaximumSize(new Dimension(0, 0)); button.setFocusable(false); return button;
     }
@@ -978,8 +984,9 @@ public final class MainWindow extends JFrame {
         return true;
     }
     private void applyAccent() { String name = String.valueOf(accentMode.getSelectedItem()); Color color; if ("Red".equals(name)) color = new Color(235, 82, 86); else if ("Orange".equals(name)) color = new Color(241, 145, 64); else if ("Yellow".equals(name)) color = new Color(239, 205, 76); else if ("Green".equals(name)) color = new Color(83, 190, 123); else if ("Purple".equals(name)) color = new Color(161, 111, 224); else if ("White".equals(name)) color = Color.WHITE; else if ("Black".equals(name)) color = new Color(20, 22, 25); else if ("Custom…".equals(name)) color = JColorChooser.showDialog(this, "Choose accent colour", palette.accent); else color = new Color(103, 153, 255); if (color != null) palette.accent = color; refreshTheme(); }
-    private void refreshTheme() { applyUiDefaults(); SwingUtilities.updateComponentTreeUI(this); opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
+    private void refreshTheme() { if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); SwingUtilities.updateComponentTreeUI(this); opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
     private void applyUiDefaults() {
+        UIManager.put("ToolTip.background",palette.controlSurface()); UIManager.put("ToolTip.foreground",palette.text); UIManager.put("ToolTip.border",BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(5,8,5,8))); UIManager.put("ToolTip.font",new Font(Font.DIALOG,Font.PLAIN,12));
         UIManager.put("Panel.background", palette.background); UIManager.put("Label.foreground", palette.text);
         UIManager.put("Button.background", palette.panelRaised); UIManager.put("Button.foreground", palette.text); UIManager.put("Button.select", palette.accent.darker());
         UIManager.put("List.background", palette.panel); UIManager.put("List.foreground", palette.text); UIManager.put("List.selectionBackground", palette.accent); UIManager.put("List.selectionForeground", palette.selectionText());
@@ -992,7 +999,7 @@ public final class MainWindow extends JFrame {
 
     private JMenuBar buildMenuBar() {
         JMenuBar bar = new JMenuBar();
-        JMenu file = new JMenu("File"); JMenuItem snapshot = new JMenuItem("Temporary snapshot"); snapshot.addActionListener(event -> backend.requestSnapshot()); JMenuItem exit = new JMenuItem("Exit"); exit.addActionListener(event -> { shutdownServices(); dispose(); }); file.add(snapshot); file.addSeparator(); file.add(exit);
+        JMenu file = new JMenu("File"); JMenuItem snapshot = new JMenuItem("Temporary snapshot"); snapshot.addActionListener(event -> takeSnapshot()); JMenuItem exit = new JMenuItem("Exit"); exit.addActionListener(event -> { shutdownServices(); dispose(); }); file.add(snapshot); file.addSeparator(); file.add(exit);
         JMenu view = new JMenu("View"); JMenuItem multitaskItem = new JMenuItem("Enter multitask mode"); multitaskItem.addActionListener(event -> setMultitask(true)); JMenuItem fit = new JMenuItem("Fit source to canvas"); fit.addActionListener(event -> resetTransform()); view.add(multitaskItem); view.add(fit);
         JMenu help = new JMenu("Help"); JMenuItem privacy = new JMenuItem("Privacy status"); privacy.addActionListener(event -> showNotice("Privacy", "Capture stays local. Recording is disabled. Temporary snapshots expire after seven days.")); help.add(privacy);
         bar.setBackground(palette.panel); bar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, palette.line));
@@ -1068,8 +1075,9 @@ public final class MainWindow extends JFrame {
     private void showWindowSourceSettings(Source source) {
         JDialog dialog = dialog(source.kind == Source.Kind.GAME ? "Configure game window — WGC compatibility" : "Configure window capture");
         JPanel body = dialogBody();
-        JPanel fields = transparent(new GridLayout(0, 1, 0, 8));
+        JPanel fields = settingsPage();
         JTextField name = new JTextField(source.name);
+        name.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(8,10,8,10)));name.setSelectionColor(palette.accent);name.setSelectedTextColor(palette.selectionText());
         name.setForeground(palette.text); name.setBackground(palette.controlSurface()); name.setCaretColor(palette.text);
         boolean[] manualName = {source.customName}, settingSuggestedName = {false};
         name.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -1107,7 +1115,7 @@ public final class MainWindow extends JFrame {
         fields.add(propertyLabel("Capture method"));
         JComboBox<String> method = new JComboBox<>(new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
         styleCombo(method); method.setSelectedIndex("WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
-        if (source.kind == Source.Kind.GAME) { method.setModel(new DefaultComboBoxModel<>(new String[]{"WGC game-window compatibility (no desktop fallback)"})); method.setEnabled(false); }
+        if (source.kind == Source.Kind.GAME) { fields.remove(method); JLabel nativeMethod=new JLabel("Windows Graphics Capture · WGC compatibility");nativeMethod.setOpaque(true);nativeMethod.setBackground(palette.controlSurface());nativeMethod.setForeground(palette.text);nativeMethod.setBorder(new EmptyBorder(10,10,10,10));fields.add(nativeMethod); }
         JLabel methodHint = muted(source.kind == Source.Kind.GAME ? "WGC captures the selected game window; graphics API hooks are not active." : "Automatic tries WGC, then compatibility capture."); fields.add(methodHint);
         body.add(fields, BorderLayout.CENTER);
         JButton cancel = toolButton("Cancel", "Discard changes"); cancel.addActionListener(event -> dialog.dispose());
@@ -1123,7 +1131,7 @@ public final class MainWindow extends JFrame {
             sourceList.repaint(); syncSelection(); preview.repaint(); dialog.dispose();
         });
         JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); actions.add(cancel); actions.add(save); body.add(actions, BorderLayout.SOUTH);
-        dialog.setContentPane(body); dialog.setSize(520, Boolean.getBoolean("multimin.dev.gameCapture") ? 430 : 360); dialog.setLocationRelativeTo(this); refresh.run(); dialog.setVisible(true);
+        dialog.setContentPane(body); dialog.setSize(680, 550); dialog.setMinimumSize(new Dimension(560,500)); dialog.setLocationRelativeTo(this); refresh.run(); dialog.setVisible(true);
     }
 
     private void resetTransform() {
@@ -1159,15 +1167,12 @@ public final class MainWindow extends JFrame {
             multitaskControls.setFocusableWindowState(false);
             multitaskControls.setAlwaysOnTop(true);
             multitaskControls.setBackground(new Color(0, 0, 0, 0));
-            JPanel controlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+            JPanel controlsPanel = new JPanel(null);
             controlsPanel.setOpaque(false);
             multitaskTargetLabel = new JLabel();
             multitaskTargetLabel.setFont(multitaskTargetLabel.getFont().deriveFont(Font.BOLD, 13f));
             multitaskTargetLabel.setOpaque(false);
-            JButton exitOverlay = new JButton("×"); multitaskExitButton = exitOverlay;
-            exitOverlay.setFont(exitOverlay.getFont().deriveFont(Font.BOLD, 22f)); exitOverlay.setForeground(Color.WHITE);
-            exitOverlay.setBackground(new Color(28, 32, 40, 220)); exitOverlay.setOpaque(true); exitOverlay.setBorder(BorderFactory.createLineBorder(palette.line));
-            exitOverlay.setPreferredSize(new Dimension(38, 34)); exitOverlay.setMargin(new Insets(0, 0, 0, 0));
+            JButton exitOverlay = new ExitCircleButton(); multitaskExitButton = exitOverlay;
             exitOverlay.setToolTipText("Exit multitask mode"); exitOverlay.addActionListener(event -> setMultitask(false));
             multitaskControls.setContentPane(controlsPanel);
             Rectangle screen = screenBounds;
@@ -1176,20 +1181,24 @@ public final class MainWindow extends JFrame {
             int buttonY = revealCornerIndex <= 2 ? screen.y + 10 : screen.y + screen.height - 48;
             int controlsWidth = 300;
             boolean labelBeforeButton = buttonX + controlsWidth > screen.x + screen.width;
-            if (labelBeforeButton) { controlsPanel.add(multitaskTargetLabel); controlsPanel.add(exitOverlay); }
-            else { controlsPanel.add(exitOverlay); controlsPanel.add(multitaskTargetLabel); }
+            controlsPanel.add(exitOverlay);controlsPanel.add(multitaskTargetLabel);
+            exitOverlay.setBounds(labelBeforeButton?262:0,0,38,38);multitaskTargetLabel.setBounds(labelBeforeButton?0:46,0,250,38);
             int controlsX = labelBeforeButton ? buttonX - (controlsWidth - 38) : buttonX;
             controlsX = Math.max(screen.x, Math.min(controlsX, screen.x + screen.width - controlsWidth));
             buttonY = Math.max(screen.y, Math.min(buttonY, screen.y + screen.height - 38));
             multitaskControls.setBounds(controlsX, buttonY, controlsWidth, 38);
             inputNoticeTimer = new javax.swing.Timer(1000, event -> multitaskTargetLabel.setVisible(false));
             inputNoticeTimer.setRepeats(false);
-            multitaskControls.setVisible(true); updateControlIndicator();
+            multitaskControls.setVisible(true);
+            Point exitPoint=exitOverlay.getLocationOnScreen();exitHotspot=new Rectangle(exitPoint.x,exitPoint.y,38,38);
+            exitHideTimer=new javax.swing.Timer(2600,event->{if(exitHotspot!=null&&MouseInfo.getPointerInfo()!=null&&exitHotspot.contains(MouseInfo.getPointerInfo().getLocation()))return;multitaskControls.setVisible(false);overlayControlRegion(false);});exitHideTimer.setRepeats(false);
+            exitHoverTimer=new javax.swing.Timer(100,event->{if(exitHotspot!=null&&MouseInfo.getPointerInfo()!=null&&exitHotspot.contains(MouseInfo.getPointerInfo().getLocation()))revealExit();});exitHoverTimer.start();updateControlIndicator();revealExit();overlayControlRegion(true);
             PythonBridge.prepareNativeDisplayCapture();
             setVisible(false);
             backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
             SwingUtilities.invokeLater(() -> { refreshNativeLayerLayout(); setControlTarget(activeView.controlSource); });
         } else {
+            if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();exitHotspot=null;
             backend.setMultitaskOverlay(false, false, stopKeyBinding);
             if (inputNoticeTimer != null) { inputNoticeTimer.stop(); inputNoticeTimer = null; }
             multitaskTargetLabel = null;
@@ -1309,6 +1318,8 @@ public final class MainWindow extends JFrame {
     }
 
     private synchronized void shutdownServices() {
+        shuttingDown=true;backend.setSnapshotHandler(ignored -> {});
+        if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();if(snapshotTimeout!=null)snapshotTimeout.stop();if(gallery!=null)gallery.dispose();
         if (workspaceTimer != null) workspaceTimer.stop();
         saveWorkspace();
         captureClosing = true;
@@ -1383,6 +1394,7 @@ public final class MainWindow extends JFrame {
     private JButton quietButton(String text) { Icon icon = null; String label = text; if ("＋".equals(text)) { icon = new VectorIcon(VectorIcon.Type.ADD, 12, palette.text); label = ""; } else if ("Snapshot".equals(text)) icon = new VectorIcon(VectorIcon.Type.CAMERA, 13, palette.text); return new ModernButton(label, icon, palette, false); }
     private JButton primaryButton(String text) { Icon icon = text.contains("Add") ? new VectorIcon(VectorIcon.Type.ADD, 12, palette::selectionText) : text.contains("multitasking") ? new VectorIcon(VectorIcon.Type.PLAY, 12, palette::selectionText) : null; return new ModernButton(text.replace("＋ ", ""), icon, palette, true); }
     private JButton toolButton(String text, String tooltip) { VectorIcon.Type type = null; if ("＋".equals(text)) type = VectorIcon.Type.ADD; else if ("−".equals(text)) type = VectorIcon.Type.REMOVE; else if ("⧉".equals(text)) type = VectorIcon.Type.COPY; else if ("◉".equals(text)) type = VectorIcon.Type.EYE; else if ("↑".equals(text)) type = VectorIcon.Type.UP; else if ("↓".equals(text)) type = VectorIcon.Type.DOWN; Icon icon = type == null ? null : new VectorIcon(type, 13, palette.text); ModernButton button = new ModernButton(type == null ? text : "", icon, palette, false); button.setToolTipText(tooltip); return button; }
+    private JLabel centeredSection(String text) { JLabel label=sectionTitle(text); label.setHorizontalAlignment(SwingConstants.CENTER); label.setMaximumSize(new Dimension(Integer.MAX_VALUE,38)); label.setAlignmentX(Component.CENTER_ALIGNMENT); return label; }
     private JLabel sectionTitle(String text) { JLabel label = muted(text); label.setBorder(new EmptyBorder(8, 0, 7, 0)); return label; }
     private JLabel propertyLabel(String text) { JLabel label = new JLabel(text); label.setForeground(palette.text); return label; }
     private JPanel percentageEditor(JSlider slider) {

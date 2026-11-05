@@ -15,6 +15,11 @@ public final class ModernButton extends JButton {
         setHorizontalTextPosition(SwingConstants.RIGHT); setIconTextGap(7);
     }
 
+    @Override public Point getToolTipLocation(java.awt.event.MouseEvent event) { return new Point(0,-34); }
+    @Override public JToolTip createToolTip() {
+        JToolTip tip=new JToolTip(){@Override public void updateUI(){setUI(new javax.swing.plaf.basic.BasicToolTipUI());}};
+        tip.setComponent(this);tip.setBackground(palette.controlSurface());tip.setForeground(palette.text);tip.setFont(getFont().deriveFont(Font.PLAIN,12f));tip.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(5,8,5,8)));return tip;
+    }
     @Override protected void paintComponent(Graphics graphics) {
         Graphics2D g = (Graphics2D) graphics.create(); g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         ButtonModel model = getModel(); Color base = primary ? palette.accent : palette.panelRaised;

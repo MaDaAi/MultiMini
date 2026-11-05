@@ -397,6 +397,10 @@ class WindowsInputBridge:
             if attached:
                 self.user32.AttachThreadInput(current_thread, foreground_thread, False)
 
+    def set_overlay_control_region(self, rect: tuple[int, int, int, int]) -> None:
+        # Visibility changes must not refocus, realign or reset the input target.
+        self._mouse_excluded_rect = tuple(int(value) for value in rect)
+
     def set_mouse_target(self, hwnd: int, rect: tuple[int, int, int, int], excluded: tuple[int, int, int, int] = (0, 0, 0, 0),
                          desktop_input: bool = False) -> None:
         if not self._layer_layout_active:

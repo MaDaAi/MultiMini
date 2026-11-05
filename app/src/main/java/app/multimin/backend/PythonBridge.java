@@ -79,6 +79,7 @@ public final class PythonBridge implements AutoCloseable {
                             else if (line.contains("\"event\":\"layer_layout_changed\"")) quickSwapHandler.accept("visual_stack_applied");
                             else if (line.contains("\"event\":\"input_target_changed\"")) quickSwapHandler.accept("visual_stack_applied");
                             else if (line.contains("\"event\":\"toggle_multitask\"")) quickSwapHandler.accept("toggle_multitask");
+                            else if (line.contains("\"event\":\"snapshot_created\"") || line.contains("\"event\":\"snapshot_error\"")) snapshotResult(line);
                             else if (line.contains("\"event\":\"window_list\"")) windowListHandler.accept(parseWindowList(line));
                             else if (line.contains("\"event\":\"game_capture_status\"") || line.contains("\"event\":\"capture_status\"")) {
                                 Matcher gameStatus = Pattern.compile("\\\"status\\\":\\\"([^\\\"]+)\\\"").matcher(line);
@@ -124,6 +125,13 @@ public final class PythonBridge implements AutoCloseable {
         } catch (IOException ignored) { }
     }
 
+    private volatile Consumer<String> snapshotHandler = ignored -> {};
+    public void setSnapshotHandler(Consumer<String> handler) { snapshotHandler = handler; }
+    private void snapshotResult(String line) {
+        Matcher match=Pattern.compile("\"(?:path64|error64)\":\"([^\"]*)\"").matcher(line);
+        if(match.find()) try { snapshotHandler.accept((line.contains("snapshot_error")?"ERROR:":"")+new String(Base64.getDecoder().decode(match.group(1)),StandardCharsets.UTF_8)); }
+        catch(IllegalArgumentException error) { snapshotHandler.accept("ERROR:Invalid screenshot response"); }
+    }
     public void requestSnapshot() { send("{\"command\":\"snapshot\",\"temporary\":true}"); }
     public void setOpacity(int value) { send("{\"command\":\"set_opacity\",\"value\":" + value + "}"); }
     public void setCaptureFps(int value) { send("{\"command\":\"set_capture_fps\",\"value\":" + value + "}"); }

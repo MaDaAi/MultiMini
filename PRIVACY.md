@@ -1,13 +1,13 @@
 # MultiMini Privacy Notice
 
-Version: 2026-11-04. Publisher: Mansoor Alakoozai, Canada. Support: https://github.com/MaDaAi/MultiMini/issues.
+Version: 2026-11-05. Publisher: Mansoor Alakoozai, Canada. Support: https://github.com/MaDaAi/MultiMini/issues.
 
 ## What stays on your device
 Selected screen/window pixels and routed input are processed locally for the preview and multitask overlay. MultiMini does not intentionally upload captured pixels, typed text or workspace contents. No account, analytics or advertising SDK is included. Source windows may themselves connect to their own online services when you interact with them.
 
 The app stores view names, source names, window titles, image file paths, monitor choices, transforms, opacity, ordering, control-source selections, keybinds and appearance settings. Workspaces are automatically saved and backed up in your Windows roaming user profile at %APPDATA%\MultiMin. Existing settings remain there for compatibility. The workspace does not store captured frames, keyboard input, or reusable Windows handles. Image sources reference your original image file; moving or deleting it prevents restoration. Your OS or backup provider may sync or back up the roaming profile. These files can reveal your activity, so protect your user account.
 
-Temporary capture buffers/files may be created under the OS temporary directory. The app attempts to remove its session files on normal shutdown; crashes may leave files behind. Optional snapshots are written locally. Snapshots older than seven days are removed when the snapshot cleanup code runs while the app is running; this is not a guaranteed wall-clock deadline or secure erasure. Copies and OS backups are outside the app's control.
+Temporary capture buffers/files may be created under the OS temporary directory. The app attempts to remove its session files on normal shutdown; crashes may leave files behind. Optional screenshots are written locally to `%LOCALAPPDATA%\MultiMin\screenshots` (or `~/.local/share/MultiMin/screenshots` when LOCALAPPDATA is unavailable). The Gallery lists these files and their remaining retention time. Choosing Keep stores a local sidecar marker and prevents automatic deletion until you delete the photo or turn Keep off. Turning Keep off starts a fresh seven-day timer. Unkept screenshots older than seven days are removed when the snapshot cleanup code runs while the app is running; this is not a guaranteed wall-clock deadline or secure erasure. Copies and OS backups are outside the app's control.
 
 Agreement acceptance records the accepted document version locally. No acceptance record is sent to the publisher.
 

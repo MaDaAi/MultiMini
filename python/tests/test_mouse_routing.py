@@ -117,6 +117,20 @@ def bridge(*, hwnd=77, preview=(100, 100, 400, 200), desktop=False, excluded=(0,
 
 
 class MouseRoutingTests(unittest.TestCase):
+    def test_exit_visibility_changes_only_the_excluded_region(self):
+        instance = bridge()
+        instance._mouse_target_hwnd = 77
+        instance._mouse_target_rect = (10, 20, 300, 200)
+        before = dict(instance.__dict__)
+        instance.set_overlay_control_region((40, 50, 38, 38))
+        self.assertEqual(instance._mouse_excluded_rect, (40, 50, 38, 38))
+        for key, value in before.items():
+            if key != "_mouse_excluded_rect":
+                self.assertEqual(instance.__dict__[key], value, key)
+        instance.set_overlay_control_region((0, 0, 0, 0))
+        self.assertEqual(instance._mouse_target_hwnd, 77)
+        self.assertEqual(instance._mouse_target_rect, (10, 20, 300, 200))
+
     def test_pause_and_right_control_bindings_do_not_match_each_other(self):
         instance = bridge()
         self.assertTrue(instance._matches_binding("PAUSE", 0x13))

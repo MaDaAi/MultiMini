@@ -1,4 +1,4 @@
-param([string]$Version = '0.03', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
+param([string]$Version = '0.04', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
@@ -12,7 +12,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Unsupported build Python.' }
 if (-not $InnoCompiler) { $InnoCompiler = Join-Path $ProjectRoot 'build\tools\inno\ISCC.exe' }
 if (-not (Test-Path -LiteralPath $InnoCompiler)) { throw 'Pass -InnoCompiler with the path to ISCC.exe.' }
 if (-not (Test-Path 'native\build\multimin-frame-bridge.dll')) { throw 'Build the native frame bridge with scripts/build-native.ps1 first.' }
-$BuildOptions = @{}
+$BuildOptions = @{ OutputName = 'internal\MultiMini-Package.jar' }
 if (-not $SafetyBuild) { $BuildOptions.DevelopmentGameCapture = $true }
 & "$PSScriptRoot\build.ps1" @BuildOptions
 if ($LASTEXITCODE -ne 0) { throw 'App compilation failed.' }
@@ -26,7 +26,7 @@ $InputRoot = Join-Path $PackageRoot 'input'
 $PythonRoot = Join-Path $InputRoot 'python'
 $RuntimeRoot = Join-Path $PythonRoot 'runtime'
 New-Item -ItemType Directory -Force $RuntimeRoot | Out-Null
-$SelectedJar = if ($SafetyBuild) { 'build\MultiMini.jar' } else { 'build\MultiMini-Experimental.jar' }
+$SelectedJar = 'build\internal\MultiMini-Package.jar'
 Copy-Item -LiteralPath $SelectedJar -Destination (Join-Path $InputRoot 'MultiMini.jar')
 if (-not $SafetyBuild -and (Test-Path 'native\build\multimin-dx11-test.exe')) {
     New-Item -ItemType Directory -Force (Join-Path $InputRoot 'native\build') | Out-Null

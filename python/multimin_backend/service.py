@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import secrets
@@ -216,6 +217,10 @@ class CaptureService:
             if self.native_input:
                 self.native_input.set_layer_layout(message.get("items", []))
             return {"event": "layer_layout_changed"}
+        if command == "set_overlay_control_region":
+            if self.native_input:
+                self.native_input.set_overlay_control_region(tuple(int(message.get(key, 0)) for key in ("x", "y", "width", "height")))
+            return {"event": "overlay_control_region_updated"}
         if command == "refresh_overlay_hit_test":
             if self.native_input and self.multitask_enabled:
                 self.native_input.refresh_overlay_hit_test()
@@ -298,8 +303,11 @@ class CaptureService:
                       "active" if source in self.game_active else "connecting")
             return {"event": "game_capture_status", "path": source, "status": status}
         if command == "snapshot":
-            path = self.snapshots.capture_temporary()
-            return {"event": "snapshot_created", "path": str(path), "retention_days": 7}
+            try:
+                path = self.snapshots.capture_temporary()
+                return {"event": "snapshot_created", "path64": base64.b64encode(str(path).encode("utf-8")).decode("ascii")}
+            except RuntimeError as error:
+                return {"event": "snapshot_error", "error64": base64.b64encode(str(error).encode("utf-8")).decode("ascii")}
         if command == "cleanup":
             return {"event": "cleanup_complete", "deleted": self.snapshots.cleanup()}
         if command == "shutdown":
