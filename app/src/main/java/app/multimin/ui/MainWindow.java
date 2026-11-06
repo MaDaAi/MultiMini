@@ -294,7 +294,7 @@ public final class MainWindow extends JFrame {
     public void checkForUpdatesOnLaunch(){GithubUpdater.checkOnLaunch(this,()->{if(!workspaceWritable)throw new IllegalStateException("Recover your workspace before updating");try{workspaceStore.save(views,activeView);}catch(java.io.IOException error){throw new IllegalStateException("Workspace could not be saved",error);}},()->{shutdownServices();dispose();System.exit(0);});}
     private void buildUi() {
         root.setBackground(palette.background); configuration.setOpaque(false); topBar.setLayout(new BoxLayout(topBar, BoxLayout.X_AXIS));
-        topBar.setBorder(new EmptyBorder(10, 18, 10, 18));
+        topBar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, palette.line), new EmptyBorder(10, 18, 10, 18)));
         JLabel brand = new JLabel("MultiMini"); brand.setFont(brand.getFont().deriveFont(Font.BOLD, 15f));
         if (appLogo != null) { brand.setIcon(appLogo); brand.setIconTextGap(10); }
         topBar.add(brand); topBar.add(Box.createHorizontalStrut(25));
@@ -311,8 +311,9 @@ public final class MainWindow extends JFrame {
 
     private JPanel sourcesPanel() {
         GlassPanel panel = new GlassPanel(palette); panel.setPreferredSize(new Dimension(265, 0)); panel.setMinimumSize(new Dimension(70, 0)); panel.setLayout(new BorderLayout(0, 10)); panel.setBorder(new EmptyBorder(12, 8, 8, 8));
-        JPanel heading = transparent(new BorderLayout()); JPanel names = transparent(new GridLayout(0, 1)); names.add(muted("CURRENT VIEW")); viewTitle.setFont(viewTitle.getFont().deriveFont(Font.BOLD, 23f)); names.add(viewTitle); heading.add(names); JButton add = primaryButton("＋ Add"); add.setPreferredSize(new Dimension(76, 32)); add.addActionListener(event -> addSource()); JPanel addWrap = transparent(new FlowLayout(FlowLayout.RIGHT, 0, 4)); addWrap.add(add); heading.add(addWrap, BorderLayout.EAST); panel.add(heading, BorderLayout.NORTH);
-        sourceList.setModel(activeView.sources); sourceList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); sourceList.setFixedCellHeight(46); sourceList.setDragEnabled(true); sourceList.setDropMode(DropMode.INSERT); sourceList.setTransferHandler(new SourceReorderHandler()); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.addListSelectionListener(event -> syncSelection());
+        JPanel heading = transparent(new BorderLayout()); JPanel names = transparent(new GridLayout(0, 1)); names.add(muted("CURRENT VIEW")); viewTitle.setFont(viewTitle.getFont().deriveFont(Font.BOLD, 20f)); names.add(viewTitle); heading.add(names); JButton add = primaryButton("＋ Add"); add.setPreferredSize(new Dimension(76, 32)); add.addActionListener(event -> addSource()); JPanel addWrap = transparent(new FlowLayout(FlowLayout.RIGHT, 0, 4)); addWrap.add(add); heading.add(addWrap, BorderLayout.EAST); panel.add(heading, BorderLayout.NORTH);
+        sourceList.getAccessibleContext().setAccessibleName("Sources in the current view");
+        sourceList.setModel(activeView.sources); sourceList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); sourceList.setFixedCellHeight(54); sourceList.setDragEnabled(true); sourceList.setDropMode(DropMode.INSERT); sourceList.setTransferHandler(new SourceReorderHandler()); sourceList.setCellRenderer(new SourceCellRenderer(palette, preferences.getBoolean("guiHelpers",true))); sourceList.addListSelectionListener(event -> syncSelection());
         sourceList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "remove-source");
         sourceList.getActionMap().put("remove-source", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { removeSelected(); } });
         sourceList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "rename-source");
@@ -334,20 +335,21 @@ public final class MainWindow extends JFrame {
             }
             @Override public void mouseReleased(java.awt.event.MouseEvent event) { preview.repaint(); }
         });
-        JScrollPane scroller = new JScrollPane(sourceList); scroller.setBorder(BorderFactory.createLineBorder(palette.line));
+        JScrollPane scroller = new JScrollPane(sourceList); scroller.setBorder(BorderFactory.createEmptyBorder());
         styleScrollBar(scroller.getVerticalScrollBar()); styleScrollBar(scroller.getHorizontalScrollBar());
         panel.add(scroller, BorderLayout.CENTER);
-        JPanel footer = transparent(new GridLayout(0, 1, 0, 6)); JPanel controls = transparent(new GridLayout(1, 0, 4, 0));
+        JPanel footer = transparent(new BorderLayout(0, 8)); JPanel helperCopy=transparent(new GridLayout(0,1,0,6)); helperCopy.putClientProperty("gui.helper",true); JPanel controls = transparent(new GridLayout(1, 0, 4, 0));
         JButton plus = toolButton("＋", "Add source"); plus.addActionListener(event -> addSource()); controls.add(plus);
         JButton minus = toolButton("−", "Remove source"); minus.addActionListener(event -> removeSelected()); controls.add(minus);
         JButton duplicate = toolButton("⧉", "Duplicate source"); duplicate.addActionListener(event -> duplicateSelected()); controls.add(duplicate);
         JButton visibility = toolButton("◉", "Show or hide selected source"); visibility.addActionListener(event -> toggleSelectedVisibility()); controls.add(visibility);
         JButton up = toolButton("↑", "Move source up"); up.addActionListener(event -> moveSelected(-1)); controls.add(up);
         JButton down = toolButton("↓", "Move source down"); down.addActionListener(event -> moveSelected(1)); controls.add(down);
-        footer.add(controls);
-        JTextArea sourceHint=new JTextArea("Drag to reorder · Double-click to configure\nF2 to rename");sourceHint.setOpaque(false);sourceHint.setEditable(false);sourceHint.setFocusable(false);sourceHint.setLineWrap(true);sourceHint.setWrapStyleWord(true);sourceHint.setForeground(palette.muted);sourceHint.setFont(UIManager.getFont("Label.font").deriveFont(11f));footer.add(sourceHint);
+        for(Component control:controls.getComponents())if(control instanceof JComponent button)button.putClientProperty("toolbar.outline",true);
+        footer.add(controls,BorderLayout.NORTH); footer.add(helperCopy,BorderLayout.CENTER);
+        JTextArea sourceHint=new JTextArea("Drag to reorder · Double-click to configure\nF2 to rename");sourceHint.setOpaque(false);sourceHint.setEditable(false);sourceHint.setFocusable(false);sourceHint.setLineWrap(true);sourceHint.setWrapStyleWord(true);sourceHint.setForeground(palette.muted);sourceHint.setFont(UIManager.getFont("Label.font").deriveFont(11f));helperCopy.add(sourceHint);
         inputKeyHint.setForeground(palette.muted); layerKeyHint.setForeground(palette.muted); updateHotkeyHints();
-        footer.add(inputKeyHint); footer.add(layerKeyHint);
+        helperCopy.add(inputKeyHint); helperCopy.add(layerKeyHint);
         panel.add(footer, BorderLayout.SOUTH); switchView(activeView); return panel;
     }
 
@@ -400,7 +402,7 @@ public final class MainWindow extends JFrame {
         panel.setBorder(new EmptyBorder(16, 16, 14, 16));
         panel.setAlignmentX(Component.CENTER_ALIGNMENT);
         JLabel selectedHeading=muted("SELECTED SOURCE"); selectedHeading.setMaximumSize(new Dimension(Integer.MAX_VALUE,24)); selectedHeading.setHorizontalAlignment(SwingConstants.LEFT); selectedHeading.setAlignmentX(Component.CENTER_ALIGNMENT); panel.add(selectedHeading);
-        layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23));
+        layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20));
         layerTitle.setOpaque(false); layerTitle.setForeground(palette.text);
         layerTitle.setBorder(new EmptyBorder(2,2,2,2));
         layerTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
@@ -455,21 +457,28 @@ public final class MainWindow extends JFrame {
         reset.addActionListener(event -> resetTransform());
         panel.add(reset);
         panel.add(Box.createVerticalStrut(10));
-        JLabel hint = muted("<html>Drag in the preview to move. Drag edge handles to resize; hold Shift to stretch.</html>");
+        JLabel hint = muted("<html>Drag to move; drag edges to resize.<br>Hold Shift to stretch.</html>");
         hint.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38)); hint.setAlignmentX(Component.CENTER_ALIGNMENT);
+        hint.putClientProperty("gui.helper",true);
         panel.add(hint);
         panel.add(Box.createVerticalGlue());
-        JPanel modeActions = new GlassPanel(palette); modeActions.setLayout(new GridLayout(0, 1, 0, 8)); modeActions.setBorder(new EmptyBorder(12, 12, 12, 12)); modeActions.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200)); modeActions.setAlignmentX(Component.CENTER_ALIGNMENT);
-        modeActions.add(muted("MULTITASK")); JButton snapshot = quietButton("Snapshot"); snapshot.addActionListener(event -> { takeSnapshot(); }); modeActions.add(snapshot); JButton galleryButton=quietButton("Gallery");galleryButton.addActionListener(event->openGallery());modeActions.add(galleryButton);
-        JButton start = primaryButton("Start multitasking"); start.addActionListener(event -> setMultitask(true)); modeActions.add(start);
-        JButton settings = quietButton("Settings"); settings.addActionListener(event -> showMultitaskSettings()); modeActions.add(settings);
+        JPanel modeActions = transparent(new BorderLayout(0, 10));
+        modeActions.setBorder(new EmptyBorder(12, 0, 0, 0));
+        modeActions.setMaximumSize(new Dimension(Integer.MAX_VALUE, 112)); modeActions.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JButton start = primaryButton("Start multitasking"); start.addActionListener(event -> setMultitask(true));
+        start.setPreferredSize(new Dimension(0, 38)); modeActions.add(start, BorderLayout.NORTH);
+        JPanel utilities = transparent(new GridLayout(1, 3, 6, 0));
+        JButton snapshot = compactAction("Snapshot", VectorIcon.Type.CAMERA); snapshot.addActionListener(event -> takeSnapshot()); utilities.add(snapshot);
+        JButton galleryButton = compactAction("Gallery", VectorIcon.Type.IMAGE); galleryButton.addActionListener(event -> openGallery()); utilities.add(galleryButton);
+        JButton settings = compactAction("Settings", VectorIcon.Type.GEAR); settings.addActionListener(event -> showMultitaskSettings()); utilities.add(settings);
+        modeActions.add(utilities, BorderLayout.CENTER);
         panel.add(modeActions);
         panel.setPreferredSize(new Dimension(300, 0)); panel.setMinimumSize(new Dimension(70, 0));
         return panel;
     }
 
     private void switchView(View view) { if (multitask) return; activeView = view; for (Map.Entry<View, AbstractButton> entry : viewButtons.entrySet()) entry.getValue().setSelected(entry.getKey() == view); viewTitle.setText(view.name); sourceList.setModel(view.sources); sourceList.setSelectedIndex(Math.min(1, view.sources.size() - 1)); preview.setView(view); }
-    private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23)); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
+    private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20)); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
     private void setControlTarget(int index) {
         if (index < 0 || index >= activeView.sources.size()) return;
         activeView.controlSource = index;
@@ -830,7 +839,7 @@ public final class MainWindow extends JFrame {
         JPanel heading = transparent(new GridLayout(0, 1, 0, 7));
         heading.add(sectionTitle("DETECTED WINDOWS"));
         heading.add(propertyLabel("Source name"));
-        JTextField sourceName = new JTextField(); sourceName.setForeground(palette.text); sourceName.setBackground(palette.controlSurface()); sourceName.setOpaque(true); sourceName.setCaretColor(palette.text); sourceName.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line), new EmptyBorder(7, 9, 7, 9))); sourceName.setPreferredSize(new Dimension(0, 34)); heading.add(sourceName); body.add(heading, BorderLayout.NORTH);
+        JTextField sourceName = new JTextField(); sourceName.getAccessibleContext().setAccessibleName("Source name"); sourceName.setForeground(palette.text); sourceName.setBackground(palette.controlSurface()); sourceName.setOpaque(true); sourceName.setCaretColor(palette.text); sourceName.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line), new EmptyBorder(7, 9, 7, 9))); sourceName.setPreferredSize(new Dimension(0, 34)); heading.add(sourceName); body.add(heading, BorderLayout.NORTH);
         boolean[] manualName = {false}, settingSuggestedName = {false};
         sourceName.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             private void changed() { if (!settingSuggestedName[0]) manualName[0] = true; }
@@ -838,7 +847,7 @@ public final class MainWindow extends JFrame {
             @Override public void removeUpdate(javax.swing.event.DocumentEvent event) { changed(); }
             @Override public void changedUpdate(javax.swing.event.DocumentEvent event) { changed(); }
         });
-        JComboBox<PythonBridge.WindowTarget> windows = new JComboBox<>();
+        JComboBox<PythonBridge.WindowTarget> windows = new JComboBox<>(); windows.getAccessibleContext().setAccessibleName("Capture window");
         styleCombo(windows); windows.setPreferredSize(new Dimension(0, 34)); windows.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
         windows.addActionListener(event -> {
             PythonBridge.WindowTarget selected = (PythonBridge.WindowTarget) windows.getSelectedItem();
@@ -871,7 +880,7 @@ public final class MainWindow extends JFrame {
     private int chooseDisplayDevice() {
         GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         if (devices.length == 0) return -1;
-        JComboBox<String> choices = new JComboBox<>();
+        JComboBox<String> choices = new JComboBox<>(); choices.getAccessibleContext().setAccessibleName("Display to capture");
         for (int i = 0; i < devices.length; i++) {
             DisplayMode mode = devices[i].getDisplayMode();
             choices.addItem("Display " + (i + 1) + " (" + devices[i].getIDstring() + ") — " + mode.getWidth() + " × " + mode.getHeight() + (devices[i].equals(GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()) ? " — primary" : ""));
@@ -898,9 +907,9 @@ public final class MainWindow extends JFrame {
             @Override protected void paintTabBackground(Graphics g,int placement,int index,int x,int y,int w,int h,boolean selected){g.setColor(selected?palette.controlSurface():palette.panel);g.fillRoundRect(x,y,w,h,8,8);if(selected){g.setColor(palette.accent);g.fillRect(x+12,y+h-3,w-24,3);}}
             @Override protected void paintTabBorder(Graphics g,int p,int i,int x,int y,int w,int h,boolean s){}
             @Override protected void paintContentBorder(Graphics g,int p,int s){}
-            @Override protected void paintFocusIndicator(Graphics g,int p,Rectangle[] r,int i,Rectangle icon,Rectangle text,boolean s){}
+            @Override protected void paintFocusIndicator(Graphics g,int p,Rectangle[] r,int i,Rectangle icon,Rectangle text,boolean s){if(tabs.hasFocus()&&s){g.setColor(palette.controlAccent());g.fillRect(r[i].x+12,r[i].y+r[i].height-3,r[i].width-24,3);}}
         });
-        JPanel fields = settingsPage(); tabs.addTab("General", fields);
+        JPanel fields = settingsPage(); JScrollPane generalScroll=new JScrollPane(fields); generalScroll.setBorder(null);generalScroll.setOpaque(false);generalScroll.getViewport().setOpaque(false);generalScroll.getVerticalScrollBar().setUnitIncrement(20);styleScrollBar(generalScroll.getVerticalScrollBar());tabs.addTab("General",generalScroll);
         fields.setBorder(new EmptyBorder(2, 0, 8, 0));
         fields.add(settingsGroup("Application"));
         JLabel version = new JLabel(System.getProperty("jpackage.app-version", "Development")); version.setForeground(palette.text); version.setFont(version.getFont().deriveFont(Font.BOLD));
@@ -908,14 +917,17 @@ public final class MainWindow extends JFrame {
         JButton updates = quietButton("Updates…");
         updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } }, () -> { shutdownServices(); dispose(); System.exit(0); }));
         fields.add(settingsRow("Updates", "Private downloads · preserves your workspace", updates));
-        JButton legal = quietButton("Read agreement & privacy"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
+        JButton legal = quietButton("Read policies"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
         fields.add(settingsRow("Publisher: Mansoor Alakoozai", "Canada · support through GitHub Issues", legal));
         fields.add(settingsGroup("Appearance"));
         JComboBox<String> stagedAccent = new JComboBox<>(new String[]{"Blue", "Red", "Orange", "Yellow", "Green", "Purple", "White", "Black", "Custom…"});
-        styleCombo(stagedAccent); stagedAccent.setFocusable(false); stagedAccent.setSelectedItem(accentMode.getSelectedItem());
+        styleCombo(stagedAccent); stagedAccent.setSelectedItem(accentMode.getSelectedItem());
         stagedAccent.setPreferredSize(new Dimension(150, 30));
         JComboBox<String> themeChoice=new JComboBox<>(new String[]{"Dark","Light"});styleCombo(themeChoice);themeChoice.setSelectedItem(preferences.getString("themeMode","Dark"));fields.add(settingsRow("Theme","Application appearance",themeChoice));
         fields.add(settingsRow("Accent colour", "Highlights and active controls", stagedAccent));
+        JCheckBox guiHelpers=new JCheckBox("Show GUI helpers",preferences.getBoolean("guiHelpers",true));
+        guiHelpers.setOpaque(false);guiHelpers.setForeground(palette.text);guiHelpers.setIcon(new AccentCheckIcon(palette));
+        fields.add(settingsRow("GUI helpers", "Source types, shortcut hints and preview guidance",guiHelpers));
         fields = settingsPage(); JScrollPane controlsScroll=new JScrollPane(fields);controlsScroll.setBorder(null);controlsScroll.getViewport().setOpaque(false);controlsScroll.setOpaque(false);controlsScroll.getVerticalScrollBar().setUnitIncrement(20);styleScrollBar(controlsScroll.getVerticalScrollBar());tabs.addTab("Controls", controlsScroll);
         fields.add(settingsGroup("Keyboard shortcuts"));
         swapKeyButton = toolButton(prettyKeyBinding(swapKeyBinding), "Click to record a key or key combination");
@@ -944,6 +956,7 @@ public final class MainWindow extends JFrame {
         boolean[] settingsApplied = {false};
         JLabel statsNote = new JLabel("<html>Auto follows your monitor's refresh rate. Actual delivery depends on the<br>capture method, source updates and hardware. Native DWM presentation<br>avoids pixel transfer for supported window-only layouts.</html>");
         statsNote.setForeground(palette.muted); statsNote.setFont(statsNote.getFont().deriveFont(10f)); fields.add(statsNote);
+        tabs.addTab("Help", PolicyPages.create(palette, true));
         body.add(tabs, BorderLayout.CENTER);
         JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); JButton cancel = toolButton("Cancel", "Close without applying"); cancel.addActionListener(event -> dialog.dispose());
         Runnable applySettings = () -> {
@@ -951,6 +964,7 @@ public final class MainWindow extends JFrame {
             screenshotKey=(String)fullScreenshotButton.getClientProperty("binding");regionScreenshotKey=(String)regionScreenshotButton.getClientProperty("binding");preferences.putString("screenshotKey",screenshotKey);preferences.putString("regionScreenshotKey",regionScreenshotKey);configureScreenshotKeys();
             swapKeyBinding = stagedSwapKeyBinding; layerSwapKeyBinding = stagedLayerSwapKeyBinding; stopKeyBinding = stagedStopKeyBinding;
             preferences.putString("swapInputKey", swapKeyBinding); preferences.putString("swapLayersKey", layerSwapKeyBinding); preferences.putString("stopKey", stopKeyBinding);
+            preferences.putBoolean("guiHelpers",guiHelpers.isSelected());
             updateHotkeyHints();
             String theme=String.valueOf(themeChoice.getSelectedItem());preferences.putString("themeMode",theme);if("Light".equals(theme))palette.light();else palette.dark();LegalConsent.setPalette(palette);
             accentMode.setSelectedItem(stagedAccent.getSelectedItem()); applyAccent();
@@ -1003,6 +1017,7 @@ public final class MainWindow extends JFrame {
         JLabel name = new JLabel(title); name.setForeground(palette.text);
         JLabel detail = new JLabel(description); detail.setForeground(palette.muted); detail.setFont(detail.getFont().deriveFont(10f));
         copy.add(name); copy.add(detail); row.add(copy, BorderLayout.CENTER);
+        name.setLabelFor(control); control.getAccessibleContext().setAccessibleName(title); control.getAccessibleContext().setAccessibleDescription(description);
         control.setPreferredSize(new Dimension(170, 31)); row.add(control, BorderLayout.EAST);
         row.setBorder(new EmptyBorder(4, 0, 4, 0)); row.setMinimumSize(new Dimension(0, 39)); row.setPreferredSize(new Dimension(400, 43));
         return row;
@@ -1040,20 +1055,32 @@ public final class MainWindow extends JFrame {
         return true;
     }
     private void applyAccent() { String name = String.valueOf(accentMode.getSelectedItem()); Color color; if ("Red".equals(name)) color = new Color(235, 82, 86); else if ("Orange".equals(name)) color = new Color(241, 145, 64); else if ("Yellow".equals(name)) color = new Color(239, 205, 76); else if ("Green".equals(name)) color = new Color(83, 190, 123); else if ("Purple".equals(name)) color = new Color(161, 111, 224); else if ("White".equals(name)) color = Color.WHITE; else if ("Black".equals(name)) color = new Color(20, 22, 25); else if ("Custom…".equals(name)) color = JColorChooser.showDialog(this, "Choose accent colour", palette.accent); else color = new Color(103, 153, 255); if (color != null) palette.accent = color; refreshTheme(); }
-    private void refreshTheme() { if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); retheme(this); for(Window owned:getOwnedWindows()){retheme(owned);owned.repaint();} opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font(Font.DIALOG,Font.BOLD,23)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette)); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
+    private void refreshTheme() { preview.setGuiHelpers(preferences.getBoolean("guiHelpers",true)); if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); retheme(this); for(Window owned:getOwnedWindows()){retheme(owned);owned.repaint();} opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette, preferences.getBoolean("guiHelpers",true))); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
     private void retheme(Component component){
+        if(component instanceof JComponent helper&&Boolean.TRUE.equals(helper.getClientProperty("gui.helper")))helper.setVisible(preferences.getBoolean("guiHelpers",true));
+        if(component.getFont()!=null)component.setFont(new Font("Segoe UI",component.getFont().getStyle(),component.getFont().getSize()));
         Palette dark=new Palette(),light=new Palette();light.light();Color fg=component.getForeground(),bg=component.getBackground();
         if(component instanceof JLabel || component instanceof javax.swing.text.JTextComponent || component instanceof JCheckBox || component instanceof JRadioButton || component instanceof AbstractButton){component.setForeground(fg!=null&&(fg.equals(dark.muted)||fg.equals(light.muted))?palette.muted:palette.text);}
         if(bg!=null&&(bg.equals(dark.background)||bg.equals(light.background)||bg.equals(dark.primary)||bg.equals(light.primary)))component.setBackground(palette.background);
         if(bg!=null&&(bg.equals(dark.panel)||bg.equals(light.panel)||bg.equals(dark.panelRaised)||bg.equals(light.panelRaised)||bg.equals(dark.controlSurface())||bg.equals(light.controlSurface())))component.setBackground(palette.controlSurface());
+        if(component instanceof JList<?> || component instanceof JViewport){component.setBackground(palette.panel);component.setForeground(palette.text);}
+        if(component==topBar)topBar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0,0,1,0,palette.line),new EmptyBorder(10,18,10,18)));
+        if(component instanceof JComboBox<?> combo)combo.setBorder(new ControlBorder(palette));
         if(component instanceof JComboBox<?> || component instanceof JTabbedPane || component instanceof JMenuItem){component.setForeground(palette.text);component.setBackground(palette.controlSurface());}
         if(component instanceof javax.swing.text.JTextComponent text){if(text.isOpaque())text.setBackground(palette.controlSurface());text.setCaretColor(palette.text);text.setSelectionColor(palette.accent);text.setSelectedTextColor(palette.selectionText());}
+        if(component instanceof JTextPane pane) {
+            var attributes=new javax.swing.text.SimpleAttributeSet();
+            javax.swing.text.StyleConstants.setForeground(attributes,palette.text);
+            pane.getStyledDocument().setCharacterAttributes(0,pane.getDocument().getLength(),attributes,false);
+        }
         if(component instanceof Container container)for(Component child:container.getComponents())retheme(child);
     }
     private void applyUiDefaults() {
+        for(String type:new String[]{"Label","Button","ToggleButton","TextField","FormattedTextField","ComboBox","List","CheckBox","RadioButton","Menu","MenuItem","TabbedPane","TextArea","TextPane","EditorPane"})
+            UIManager.put(type+".font",new javax.swing.plaf.FontUIResource("Segoe UI",Font.PLAIN,12));
         for(String type:new String[]{"Menu","MenuItem","PopupMenu","TabbedPane","TextArea","TextPane","EditorPane"}){UIManager.put(type+".background",palette.controlSurface());UIManager.put(type+".foreground",palette.text);UIManager.put(type+".selectionBackground",palette.accent);UIManager.put(type+".selectionForeground",palette.selectionText());}
 
-        UIManager.put("ToolTip.background",palette.controlSurface()); UIManager.put("ToolTip.foreground",palette.text); UIManager.put("ToolTip.border",BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(5,8,5,8))); UIManager.put("ToolTip.font",new Font(Font.DIALOG,Font.PLAIN,12));
+        UIManager.put("ToolTip.background",palette.controlSurface()); UIManager.put("ToolTip.foreground",palette.text); UIManager.put("ToolTip.border",BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(5,8,5,8))); UIManager.put("ToolTip.font",new Font("Segoe UI",Font.PLAIN,12));
         UIManager.put("Panel.background", palette.background); UIManager.put("Label.foreground", palette.text);
         UIManager.put("Button.background", palette.panelRaised); UIManager.put("Button.foreground", palette.text); UIManager.put("Button.select", palette.accent.darker());
         UIManager.put("List.background", palette.panel); UIManager.put("List.foreground", palette.text); UIManager.put("List.selectionBackground", palette.accent); UIManager.put("List.selectionForeground", palette.selectionText());
@@ -1143,7 +1170,7 @@ public final class MainWindow extends JFrame {
         JDialog dialog = dialog(source.kind == Source.Kind.GAME ? "Configure game window — WGC compatibility" : "Configure window capture");
         JPanel body = dialogBody();
         JPanel fields = settingsPage();
-        JTextField name = new JTextField(source.name);
+        JTextField name = new JTextField(source.name); name.getAccessibleContext().setAccessibleName("Source name");
         name.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(8,10,8,10)));name.setSelectionColor(palette.accent);name.setSelectedTextColor(palette.selectionText());
         name.setForeground(palette.text); name.setBackground(palette.controlSurface()); name.setCaretColor(palette.text);
         boolean[] manualName = {source.customName}, settingSuggestedName = {false};
@@ -1153,7 +1180,7 @@ public final class MainWindow extends JFrame {
             @Override public void removeUpdate(javax.swing.event.DocumentEvent event) { changed(); }
             @Override public void changedUpdate(javax.swing.event.DocumentEvent event) { changed(); }
         });
-        JComboBox<PythonBridge.WindowTarget> targets = new JComboBox<>(); styleCombo(targets);
+        JComboBox<PythonBridge.WindowTarget> targets = new JComboBox<>(); targets.getAccessibleContext().setAccessibleName("Capture target"); styleCombo(targets);
         targets.addActionListener(event -> {
             PythonBridge.WindowTarget selected = (PythonBridge.WindowTarget) targets.getSelectedItem();
             if (selected != null && !manualName[0]) {
@@ -1181,7 +1208,7 @@ public final class MainWindow extends JFrame {
         fields.add(nativePresentation);
         fields.add(propertyLabel("Capture method"));
         JComboBox<String> method = new JComboBox<>(new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
-        styleCombo(method); method.setSelectedIndex("WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
+        method.getAccessibleContext().setAccessibleName("Capture method"); styleCombo(method); method.setSelectedIndex("WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
         if (source.kind == Source.Kind.GAME) { fields.remove(method); JLabel nativeMethod=new JLabel("Windows Graphics Capture · WGC compatibility");nativeMethod.setOpaque(true);nativeMethod.setBackground(palette.controlSurface());nativeMethod.setForeground(palette.text);nativeMethod.setBorder(new EmptyBorder(10,10,10,10));fields.add(nativeMethod); }
         JLabel methodHint = muted(source.kind == Source.Kind.GAME ? "WGC captures the selected game window; graphics API hooks are not active." : "Automatic tries WGC, then compatibility capture."); fields.add(methodHint);
         body.add(fields, BorderLayout.CENTER);
@@ -1447,7 +1474,7 @@ public final class MainWindow extends JFrame {
 
     private String promptText(String title, String prompt, String initial) {
         JDialog dialog = dialog(title); JPanel body = dialogBody(); body.add(new JLabel(prompt), BorderLayout.NORTH);
-        JTextField field = new JTextField(initial, 24); field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setSelectionColor(palette.accent); field.setSelectedTextColor(palette.selectionText()); field.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line), new EmptyBorder(6, 8, 6, 8))); body.add(field, BorderLayout.CENTER);
+        JTextField field = new JTextField(initial, 24); field.getAccessibleContext().setAccessibleName(prompt); field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setSelectionColor(palette.accent); field.setSelectedTextColor(palette.selectionText()); field.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line), new EmptyBorder(6, 8, 6, 8))); body.add(field, BorderLayout.CENTER);
         final String[] result = {null}; JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); JButton cancel = toolButton("Cancel", "Cancel"); cancel.addActionListener(event -> dialog.dispose()); JButton save = primaryButton("Save"); save.addActionListener(event -> { result[0] = field.getText(); dialog.dispose(); }); actions.add(cancel); actions.add(save); body.add(actions, BorderLayout.SOUTH);
         dialog.setContentPane(body); dialog.setSize(390, 175); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
     }
@@ -1464,19 +1491,32 @@ public final class MainWindow extends JFrame {
     private JButton quietButton(String text) { Icon icon = null; String label = text; if ("＋".equals(text)) { icon = new VectorIcon(VectorIcon.Type.ADD, 12, ()->palette.text); label = ""; } else if ("Snapshot".equals(text)) icon = new VectorIcon(VectorIcon.Type.CAMERA, 13, ()->palette.text); return new ModernButton(label, icon, palette, false); }
     private JButton primaryButton(String text) { Icon icon = text.contains("Add") ? new VectorIcon(VectorIcon.Type.ADD, 12, palette::selectionText) : text.contains("multitasking") ? new VectorIcon(VectorIcon.Type.PLAY, 12, palette::selectionText) : null; return new ModernButton(text.replace("＋ ", ""), icon, palette, true); }
     private JButton toolButton(String text, String tooltip) { VectorIcon.Type type = null; if ("＋".equals(text)) type = VectorIcon.Type.ADD; else if ("−".equals(text)) type = VectorIcon.Type.REMOVE; else if ("⧉".equals(text)) type = VectorIcon.Type.COPY; else if ("◉".equals(text)) type = VectorIcon.Type.EYE; else if ("↑".equals(text)) type = VectorIcon.Type.UP; else if ("↓".equals(text)) type = VectorIcon.Type.DOWN; Icon icon = type == null ? null : new VectorIcon(type, 13, ()->palette.text); ModernButton button = new ModernButton(type == null ? text : "", icon, palette, false); button.setToolTipText(tooltip); return button; }
+    private JButton compactAction(String label, VectorIcon.Type icon) {
+        ModernButton button = new ModernButton(label, new VectorIcon(icon, 15, () -> palette.text), palette, false);
+        button.putClientProperty("appearance.textOnly", true);
+        button.setVerticalTextPosition(SwingConstants.BOTTOM); button.setHorizontalTextPosition(SwingConstants.CENTER);
+        button.setIconTextGap(5); button.setBorder(new EmptyBorder(4, 2, 4, 2));
+        button.setFont(button.getFont().deriveFont(11f)); button.setToolTipText(label);
+        return button;
+    }
     private JLabel centeredSection(String text) { JLabel label=sectionTitle(text); label.setHorizontalAlignment(SwingConstants.CENTER); label.setMaximumSize(new Dimension(Integer.MAX_VALUE,38)); label.setAlignmentX(Component.CENTER_ALIGNMENT); return label; }
-    private JLabel sectionTitle(String text) { JLabel label = muted(text); label.setBorder(new EmptyBorder(8, 0, 7, 0)); return label; }
+    private JLabel sectionTitle(String text) { JLabel label = muted(text); label.setFont(label.getFont().deriveFont(11f)); label.setBorder(new EmptyBorder(8, 0, 7, 0)); return label; }
     private JLabel propertyLabel(String text) { JLabel label = new JLabel(text); label.setForeground(palette.text); return label; }
     private JPanel percentageEditor(JSlider slider) {
         CardLayout cards = new CardLayout();
         JPanel holder = transparent(cards);
         holder.setPreferredSize(new Dimension(62, 25));
-        JButton value = new JButton(slider.getValue() + "%");
+        String accessibleLabel=slider==opacity?"Opacity":"Size";
+        slider.getAccessibleContext().setAccessibleName(accessibleLabel);
+        JButton value = new ModernButton(slider.getValue() + "%", null, palette, false);
+        value.putClientProperty("appearance.textOnly",true);
+        value.getAccessibleContext().setAccessibleName(accessibleLabel + " percentage");
         value.setToolTipText("Click to enter a value from " + slider.getMinimum() + "% to " + slider.getMaximum() + "%");
         value.setForeground(palette.muted); value.setBorder(new EmptyBorder(0, 2, 0, 0));
         value.setOpaque(false); value.setContentAreaFilled(false); value.setFocusPainted(false);
         value.setHorizontalAlignment(SwingConstants.RIGHT);
         JTextField editor = new JTextField();
+        editor.getAccessibleContext().setAccessibleName(accessibleLabel + " percentage");
         editor.setHorizontalAlignment(SwingConstants.RIGHT);
         editor.setBackground(palette.controlSurface()); editor.setForeground(palette.text);
         editor.setCaretColor(palette.text); editor.setBorder(BorderFactory.createLineBorder(palette.accent));
@@ -1509,7 +1549,7 @@ public final class MainWindow extends JFrame {
             @Override public void paintCurrentValueBackground(Graphics g,Rectangle bounds,boolean focus){g.setColor(palette.controlSurface());g.fillRect(bounds.x,bounds.y,bounds.width,bounds.height);}
             @Override protected javax.swing.plaf.basic.ComboPopup createPopup(){return new javax.swing.plaf.basic.BasicComboPopup(comboBox){@Override protected JScrollPane createScroller(){JScrollPane pane=super.createScroller();styleScrollBar(pane.getVerticalScrollBar());pane.setBorder(BorderFactory.createEmptyBorder());return pane;}};}
         });
-        combo.setOpaque(true); combo.setBackground(palette.controlSurface()); combo.setForeground(palette.text); combo.setBorder(BorderFactory.createLineBorder(palette.line));
+        combo.setOpaque(true); combo.setBackground(palette.controlSurface()); combo.setForeground(palette.text); combo.setBorder(new ControlBorder(palette));
         combo.setRenderer((list, value, index, selected, focus) -> {
             JLabel item = new JLabel(value == null ? "" : value.toString()); item.setOpaque(true); item.setBorder(new EmptyBorder(4, 7, 4, 7));
             item.setBackground(selected ? palette.accent : palette.controlSurface());

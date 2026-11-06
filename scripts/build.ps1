@@ -46,7 +46,7 @@ Set-Content -LiteralPath (Join-Path $ClassRoot 'build.properties') -Value @(
 $ResourceRoot = Join-Path $ProjectRoot 'app\src\main\resources'
 $LegalRoot = Join-Path $ClassRoot 'legal'
 New-Item -ItemType Directory -Force -Path $LegalRoot | Out-Null
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'TERMS.md'),(Join-Path $ProjectRoot 'PRIVACY.md'),(Join-Path $ProjectRoot 'LICENSE') -Destination $LegalRoot -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'TERMS.md'),(Join-Path $ProjectRoot 'PRIVACY.md'),(Join-Path $ProjectRoot 'LICENSE'),(Join-Path $ProjectRoot 'COOKIE_POLICY.md'),(Join-Path $ProjectRoot 'REFUND_POLICY.md'),(Join-Path $ProjectRoot 'HELP.md'),(Join-Path $ProjectRoot 'THIRD_PARTY_NOTICES.md') -Destination $LegalRoot -Force
 if (Test-Path -LiteralPath $ResourceRoot) {
     Get-ChildItem -LiteralPath $ResourceRoot -File -Recurse | ForEach-Object {
         $relative = $_.FullName.Substring($ResourceRoot.Length).TrimStart('\')

@@ -1,0 +1,80 @@
+name: Publish Windows v1.0.6
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-1.0.6.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-1.0.6
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '26'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Verify source regressions
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "$pwd/python"
+          python -m unittest discover -s python/tests
+          if ($LASTEXITCODE -ne 0) { throw 'Python regression failed' }
+      - name: Build portable application
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force build/baseline | Out-Null
+          gh release download v1.0.5 --repo MaDaAi/MultiMini --pattern 'MultiMini-1.0.5-Windows-x64.zip*' --dir build/baseline
+          if ($LASTEXITCODE -ne 0) { throw 'Baseline download failed' }
+          $zip = 'build/baseline/MultiMini-1.0.5-Windows-x64.zip'
+          $expected = ((Get-Content ($zip+'.sha256') -Raw).Trim() -split '\s+')[0]
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected.ToLowerInvariant()) { throw 'Baseline checksum mismatch' }
+          Expand-Archive $zip build/baseline/extracted
+          $launcher = Get-ChildItem build/baseline/extracted -Recurse -Filter MultiMini.exe | Select-Object -First 1
+          if (-not $launcher) { throw 'No baseline launcher' }
+          $baseline = $launcher.Directory.FullName
+          New-Item -ItemType Directory -Force build/native-extract,native/build | Out-Null
+          $baselineJar = Join-Path $baseline 'app/MultiMini.jar'
+          Push-Location build/native-extract
+          jar xf $baselineJar native/multimin-frame-bridge.dll
+          Pop-Location
+          Copy-Item build/native-extract/native/multimin-frame-bridge.dll native/build/multimin-frame-bridge.dll
+          ./scripts/build.ps1 -OutputName MultiMini.jar -DevelopmentGameCapture
+          if ($LASTEXITCODE -ne 0) { throw 'Java build failed' }
+          New-Item -ItemType Directory -Force build/checks | Out-Null
+          javac -encoding UTF-8 -cp build/MultiMini.jar -d build/checks app/src/test/java/app/multimin/ui/AppearancePolicyCheck.java native/tests/FrameBridgeCheck.java
+          if ($LASTEXITCODE -ne 0) { throw 'Check compilation failed' }
+          java -Djava.awt.headless=true -cp 'build/checks;build/MultiMini.jar' app.multimin.ui.AppearancePolicyCheck
+          if ($LASTEXITCODE -ne 0) { throw 'Appearance/policy check failed' }
+          $env:PYTHONPATH = "$pwd/python"
+          python scripts/check-frame-bridge.py build/MultiMini.jar build/checks
+          if ($LASTEXITCODE -ne 0) { throw 'Shared/socket transport check failed' }
+          $output = 'build/release/MultiMini-1.0.6-Windows-x64'
+          New-Item -ItemType Directory -Force build/release | Out-Null
+          Copy-Item -LiteralPath $baseline -Destination $output -Recurse
+          Copy-Item build/MultiMini.jar "$output/app/MultiMini.jar" -Force
+          Copy-Item README.md,LICENSE,TERMS.md,PRIVACY.md,COOKIE_POLICY.md,REFUND_POLICY.md,HELP.md,THIRD_PARTY_NOTICES.md "$output/app" -Force
+          Copy-Item licenses/Oracle-NFTC.txt "$output/runtime/JDK-LICENSE.txt" -Force
+          $cfg = "$output/app/MultiMini.cfg"
+          (Get-Content $cfg -Raw).Replace('jpackage.app-version=1.0.5','jpackage.app-version=1.0.6') | Set-Content $cfg -Encoding ascii
+          Compress-Archive -Path $output -DestinationPath build/release/MultiMini-1.0.6-Windows-x64.zip
+          ./scripts/hash-portable.ps1 -Archive build/release/MultiMini-1.0.6-Windows-x64.zip
+      - name: Publish release and checksum
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v1.0.6 --repo MaDaAi/MultiMini 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'v1.0.6 already exists; refusing replacement' }
+          gh release create v1.0.6 build/release/MultiMini-1.0.6-Windows-x64.zip build/release/MultiMini-1.0.6-Windows-x64.zip.sha256 --repo MaDaAi/MultiMini --target ${{ github.sha }} --title 'MultiMini 1.0.6 - UI refresh and leaner preview rendering' --notes-file docs/RELEASE_V1.0.6.md --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publishing failed' }

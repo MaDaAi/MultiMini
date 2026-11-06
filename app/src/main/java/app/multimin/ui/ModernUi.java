@@ -41,23 +41,23 @@ final class ModernUi {
         menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener(){public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e){menu.setBackground(p.controlSurface());menu.repaint();}public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e){}public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e){}});
         menu.setBackground(p.controlSurface());menu.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(p.line),BorderFactory.createEmptyBorder(5,5,5,5)));
         for(Component component:menu.getComponents()){
-            if(component instanceof JMenuItem item){item.setFont(new Font(Font.DIALOG,Font.PLAIN,13));item.setBorder(BorderFactory.createEmptyBorder(8,12,8,12));item.setUI(new BasicMenuItemUI(){@Override public void paint(Graphics graphics,JComponent c){Graphics2D g=(Graphics2D)graphics.create();g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);boolean hover=item.isArmed()||item.isSelected();g.setColor(p.controlSurface());g.fillRect(0,0,c.getWidth(),c.getHeight());if(hover&&item.isEnabled()){g.setColor(p.accent);g.fillRoundRect(0,0,c.getWidth(),c.getHeight(),8,8);}g.setFont(item.getFont());g.setColor(!item.isEnabled()?p.muted:hover?p.selectionText():p.text);FontMetrics metrics=g.getFontMetrics();g.drawString(item.getText(),12,(c.getHeight()-metrics.getHeight())/2+metrics.getAscent());g.dispose();}});}
+            if(component instanceof JMenuItem item){item.setFont(new Font("Segoe UI",Font.PLAIN,13));item.setBorder(BorderFactory.createEmptyBorder(8,12,8,12));item.setUI(new BasicMenuItemUI(){@Override public void paint(Graphics graphics,JComponent c){Graphics2D g=(Graphics2D)graphics.create();g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);boolean hover=item.isArmed()||item.isSelected();g.setColor(p.controlSurface());g.fillRect(0,0,c.getWidth(),c.getHeight());if(hover&&item.isEnabled()){g.setColor(p.accent);g.fillRoundRect(0,0,c.getWidth(),c.getHeight(),8,8);}g.setFont(item.getFont());g.setColor(!item.isEnabled()?p.muted:hover?p.selectionText():p.text);FontMetrics metrics=g.getFontMetrics();g.drawString(item.getText(),12,(c.getHeight()-metrics.getHeight())/2+metrics.getAscent());g.dispose();}});}
             else if(component instanceof JSeparator separator){separator.setPreferredSize(new Dimension(1,9));separator.setUI(new javax.swing.plaf.basic.BasicSeparatorUI(){@Override public void paint(Graphics g,JComponent c){g.setColor(p.line);g.drawLine(6,4,c.getWidth()-6,4);}});}
         }
     }
     private static final class Split extends BasicSplitPaneUI {
         final Palette p; Split(Palette p){this.p=p;}
         @Override public BasicSplitPaneDivider createDefaultDivider(){BasicSplitPaneDivider divider=new BasicSplitPaneDivider(this){
-            @Override public void paint(Graphics g){g.setColor(p.background);g.fillRect(0,0,getWidth(),getHeight());g.setColor(p.accent);if(getWidth()<getHeight())g.fillRect((getWidth()-2)/2,0,2,getHeight());else g.fillRect(0,(getHeight()-2)/2,getWidth(),2);}
+            @Override public void paint(Graphics g){g.setColor(p.background);g.fillRect(0,0,getWidth(),getHeight());g.setColor(p.line);if(getWidth()<getHeight())g.fillRect((getWidth()-1)/2,0,1,getHeight());else g.fillRect(0,(getHeight()-1)/2,getWidth(),1);}
         };divider.setBorder(BorderFactory.createEmptyBorder());return divider;}
     }
     private static final class Scroll extends BasicScrollBarUI {
         final Palette p; Scroll(Palette p){this.p=p;}
-        @Override protected void configureScrollBarColors(){trackColor=p.primary;thumbColor=p.accent;}
+        @Override protected void configureScrollBarColors(){trackColor=p.panel;thumbColor=p.muted;}
         private JButton empty(){JButton b=new JButton();b.setPreferredSize(new Dimension());b.setMinimumSize(new Dimension());b.setMaximumSize(new Dimension());return b;}
         @Override protected JButton createDecreaseButton(int n){return empty();}
         @Override protected JButton createIncreaseButton(int n){return empty();}
-        @Override protected void paintTrack(Graphics g,JComponent c,Rectangle r){g.setColor(p.primary);g.fillRect(r.x,r.y,r.width,r.height);}
-        @Override protected void paintThumb(Graphics g,JComponent c,Rectangle r){if(r.isEmpty())return;Graphics2D a=(Graphics2D)g.create();a.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);a.setColor(isDragging?p.accent.brighter():p.accent);a.fillRoundRect(r.x+2,r.y+2,Math.max(2,r.width-4),Math.max(2,r.height-4),8,8);a.dispose();}
+        @Override protected void paintTrack(Graphics g,JComponent c,Rectangle r){g.setColor(p.panel);g.fillRect(r.x,r.y,r.width,r.height);}
+        @Override protected void paintThumb(Graphics g,JComponent c,Rectangle r){if(r.isEmpty())return;Graphics2D a=(Graphics2D)g.create();a.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);a.setColor(isDragging?p.accent:Palette.blend(p.panel,p.muted,isThumbRollover()?0.7f:0.4f));a.fillRoundRect(r.x+2,r.y+2,Math.max(2,r.width-4),Math.max(2,r.height-4),8,8);a.dispose();}
     }
 }

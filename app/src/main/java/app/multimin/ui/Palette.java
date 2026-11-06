@@ -3,16 +3,42 @@ package app.multimin.ui;
 import java.awt.Color;
 
 public final class Palette {
-    public Color primary = new Color(38, 43, 52);
+    public Color primary = new Color(29, 31, 35);
     public Color accent = new Color(103, 153, 255);
-    public Color background = new Color(24, 27, 33);
-    public Color panel = new Color(35, 39, 48, 218);
-    public Color panelRaised = new Color(48, 54, 65, 225);
-    public Color line = new Color(82, 90, 105, 150);
-    public Color text = new Color(232, 235, 240);
-    public Color muted = new Color(150, 157, 169);
+    public Color background = new Color(22, 23, 26);
+    public Color panel = new Color(29, 31, 35);
+    public Color panelRaised = new Color(39, 42, 47);
+    public Color line = new Color(58, 61, 67);
+    public Color text = new Color(237, 238, 240);
+    public Color muted = new Color(159, 164, 174);
 
     public Color controlSurface() { return new Color(panelRaised.getRed(), panelRaised.getGreen(), panelRaised.getBlue()); }
+
+    /** Opaque, low-emphasis selection for navigation and list rows. */
+    public Color selectionSurface() { return blend(controlSurface(), accent, 0.16f); }
+
+    public static Color blend(Color base, Color tint, float amount) {
+        return new Color(Math.round(base.getRed() * (1 - amount) + tint.getRed() * amount),
+            Math.round(base.getGreen() * (1 - amount) + tint.getGreen() * amount),
+            Math.round(base.getBlue() * (1 - amount) + tint.getBlue() * amount));
+    }
+
+
+    /** A visible control boundary, distinct from decorative panel dividers. */
+    public Color controlBorder() { return readable(blend(controlSurface(), text, 0.48f), controlSurface(), 3.0); }
+    public Color controlAccent() { return readable(accent, panel, 3.0); }
+    private Color readable(Color color, Color surface, double minimum) {
+        for (int step = 0; step <= 20; step++) {
+            Color candidate = blend(color, contrastText(surface), step / 20f);
+            if (contrastRatio(candidate, surface) >= minimum) return candidate;
+        }
+        return contrastText(surface);
+    }
+    public static double contrastRatio(Color a, Color b) {
+        double x = 0.2126 * channel(a.getRed()) + 0.7152 * channel(a.getGreen()) + 0.0722 * channel(a.getBlue());
+        double y = 0.2126 * channel(b.getRed()) + 0.7152 * channel(b.getGreen()) + 0.0722 * channel(b.getBlue());
+        return (Math.max(x,y) + 0.05) / (Math.min(x,y) + 0.05);
+    }
 
     public Color selectionText() {
         return contrastText(accent);
@@ -30,15 +56,15 @@ public final class Palette {
     }
 
     public void dark() {
-        primary = new Color(38, 43, 52); background = new Color(24, 27, 33);
-        panel = new Color(35, 39, 48, 218); panelRaised = new Color(48, 54, 65, 225);
-        line = new Color(82, 90, 105, 150); text = new Color(232, 235, 240); muted = new Color(150, 157, 169);
+        primary = new Color(29, 31, 35); background = new Color(22, 23, 26);
+        panel = new Color(29, 31, 35); panelRaised = new Color(39, 42, 47);
+        line = new Color(58, 61, 67); text = new Color(237, 238, 240); muted = new Color(159, 164, 174);
     }
 
     public void light() {
-        primary = new Color(230, 235, 240); background = new Color(205, 214, 220);
-        panel = new Color(245, 248, 250, 205); panelRaised = new Color(225, 231, 236, 230);
-        line = new Color(134, 146, 154, 130); text = new Color(31, 37, 43); muted = new Color(91, 103, 111);
+        primary = new Color(246, 247, 249); background = new Color(237, 239, 243);
+        panel = new Color(250, 251, 252); panelRaised = new Color(240, 242, 246);
+        line = new Color(215, 219, 226); text = new Color(30, 34, 41); muted = new Color(101, 109, 123);
     }
 
     public void customBase(Color base) {

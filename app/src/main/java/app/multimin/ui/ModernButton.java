@@ -12,7 +12,13 @@ public final class ModernButton extends JButton {
         super(text, icon); this.palette = palette; this.primary = primary;
         setOpaque(false); setContentAreaFilled(false); setBorderPainted(false); setFocusPainted(false);
         setForeground(Color.WHITE); setBorder(new EmptyBorder(7, 10, 7, 10)); setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        setRolloverEnabled(true);
         setHorizontalTextPosition(SwingConstants.RIGHT); setIconTextGap(7);
+    }
+
+    @Override public void setToolTipText(String text) {
+        super.setToolTipText(text);
+        if (getText() == null || getText().isBlank()) getAccessibleContext().setAccessibleName(text);
     }
 
     @Override public Point getToolTipLocation(java.awt.event.MouseEvent event) { return new Point(0,-34); }
@@ -22,10 +28,26 @@ public final class ModernButton extends JButton {
     }
     @Override protected void paintComponent(Graphics graphics) {
         Graphics2D g = (Graphics2D) graphics.create(); g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        ButtonModel model = getModel(); Color base = primary ? palette.accent : palette.panelRaised;
-        if (model.isPressed()) base = base.darker(); else if (model.isSelected()) base = palette.accent; else if (model.isRollover()) base = base.darker();
-        g.setColor(base); g.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8); g.setColor(isFocusOwner() ? palette.accent : palette.line); g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8); g.dispose();
-        setForeground(primary || model.isSelected() ? palette.selectionText() : palette.text); super.paintComponent(graphics);
+        ButtonModel model = getModel();
+        boolean emphasized = primary;
+        Color base = emphasized ? palette.accent : model.isSelected() ? palette.selectionSurface() : palette.controlSurface();
+        if (model.isPressed()) base = Palette.blend(base, palette.text, 0.12f);
+        else if (model.isRollover()) base = Palette.blend(base, palette.text, 0.06f);
+        if (!isEnabled()) base = Palette.blend(palette.panel, base, 0.45f);
+        g.setColor(base);
+        if (!Boolean.TRUE.equals(getClientProperty("appearance.textOnly"))) g.fill(new java.awt.geom.RoundRectangle2D.Float(1, 1, getWidth()-2, getHeight()-2, 10, 10));
+        if (Boolean.TRUE.equals(getClientProperty("toolbar.outline"))) {
+            g.setColor(palette.controlBorder());
+            g.draw(new java.awt.geom.RoundRectangle2D.Float(1.5f,1.5f,getWidth()-3,getHeight()-3,9,9));
+        }
+        if (isFocusOwner()) {
+            g.setColor(emphasized ? Palette.contrastText(base) : palette.controlAccent());
+            g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.drawLine(10, getHeight()-4, getWidth()-11, getHeight()-4);
+        }
+        g.dispose();
+        setForeground(!isEnabled() ? palette.muted : emphasized ? palette.selectionText() : palette.text);
+        super.paintComponent(graphics);
     }
 
 
