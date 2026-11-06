@@ -22,3 +22,5 @@ workspace.properties
 agreement.properties
 /screenshots/
 /.codex/
+
+/zip releases/

@@ -25,3 +25,12 @@ $null=& $script -CurrentVersion '0.01' -Prepare
 if($LASTEXITCODE -eq 0){throw 'Corrupted download was accepted'}
 if($global:MultiMiniTestChecksumPath){Remove-Item -LiteralPath $global:MultiMiniTestChecksumPath -Force;[IO.Directory]::Delete([IO.Path]::GetDirectoryName($global:MultiMiniTestChecksumPath))}
 Write-Output 'PASS: discovery, version guards, verified download, foreign URL/path rejection and corrupt-download rejection; no installer executed'
+
+$hash=[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($payload)).Replace('-','').ToLowerInvariant()
+$name='MultiMini-0.02-Windows-x64.zip';$url='https://github.com/MaDaAi/MultiMini/releases/download/v0.02/'+$name
+$result=& $script -CurrentVersion '0.01';if($result -ne '0.02'){throw 'ZIP release discovery failed'}
+$prepared=& $script -CurrentVersion '0.01' -Prepare
+if($LASTEXITCODE -ne 0 -or $prepared.Count -ne 2 -or $prepared[1] -ne $hash){throw 'ZIP verification failed'}
+Remove-Item -LiteralPath $prepared[0],($prepared[0]+'.sha256') -Force
+[IO.Directory]::Delete([IO.Path]::GetDirectoryName($prepared[0]))
+Write-Output 'PASS: ZIP discovery and verified staging (payload not executed)'

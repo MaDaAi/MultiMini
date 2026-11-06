@@ -1,4 +1,4 @@
-param([string]$Version = '1.0.3', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild)
+param([string]$Version = '1.0.5', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild, [switch]$PortableOnly)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
@@ -10,7 +10,7 @@ if (-not $PythonExecutable) { throw 'Pass -PythonExecutable with a Python 3.14 x
 & $PythonExecutable -c "import sys,struct; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8, 'Packaging needs Python 3.14 x64'"
 if ($LASTEXITCODE -ne 0) { throw 'Unsupported build Python.' }
 if (-not $InnoCompiler) { $InnoCompiler = Join-Path $ProjectRoot 'build\tools\inno\ISCC.exe' }
-if (-not (Test-Path -LiteralPath $InnoCompiler)) { throw 'Pass -InnoCompiler with the path to ISCC.exe.' }
+if (-not $PortableOnly -and -not (Test-Path -LiteralPath $InnoCompiler)) { throw 'Pass -InnoCompiler with the path to ISCC.exe.' }
 if (-not (Test-Path 'native\build\multimin-frame-bridge.dll')) { throw 'Build the native frame bridge with scripts/build-native.ps1 first.' }
 $BuildOptions = @{ OutputName = 'internal\MultiMini-Package.jar' }
 if (-not $SafetyBuild) { $BuildOptions.DevelopmentGameCapture = $true }
@@ -56,6 +56,14 @@ $ImageRoot = Join-Path $PackageRoot 'image'
 & "$Jdk\bin\jpackage.exe" --type app-image --name MultiMini --app-version $Version --vendor 'Mansoor Alakoozai' --icon (Join-Path $ProjectRoot 'installer\assets\multimini.ico') --input $InputRoot --main-jar MultiMini.jar --dest $ImageRoot --add-modules java.desktop,java.management,jdk.management,jdk.unsupported --java-options '--enable-native-access=ALL-UNNAMED' --java-options '-Xmx2g' --java-options '-XX:G1HeapRegionSize=32m'
 if ($LASTEXITCODE -ne 0) { throw 'Native launcher packaging failed.' }
 $AppImage = Join-Path $ImageRoot 'MultiMini'
+if ($PortableOnly) {
+    $PortableRoot = Join-Path $ProjectRoot ('zip releases\MultiMini-'+$Version+'-Windows-x64')
+    if (Test-Path -LiteralPath $PortableRoot) { throw 'Portable output already exists; move it aside before rebuilding.' }
+    New-Item -ItemType Directory -Force (Split-Path -Parent $PortableRoot) | Out-Null
+    Copy-Item -LiteralPath $AppImage -Destination $PortableRoot -Recurse
+    Write-Output $PortableRoot
+    exit 0
+}
 $OutputRoot = Join-Path $ProjectRoot $(if ($SafetyBuild) { 'dist\safety' } else { 'dist' })
 & $InnoCompiler "/O$OutputRoot" "/DAppImageDir=$AppImage" "/DReleaseVersion=$Version" "/DAppChannel=$Channel" installer\MultiMin.iss
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
