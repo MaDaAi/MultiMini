@@ -54,7 +54,7 @@ jobs:
           New-Item -ItemType Directory -Force build/checks | Out-Null
           javac -encoding UTF-8 -cp build/MultiMini.jar -d build/checks app/src/test/java/app/multimin/ui/AppearancePolicyCheck.java native/tests/FrameBridgeCheck.java
           if ($LASTEXITCODE -ne 0) { throw 'Check compilation failed' }
-          java -Djava.awt.headless=true -cp 'build/checks;build/MultiMini.jar' app.multimin.ui.AppearancePolicyCheck
+          java '-Djava.awt.headless=true' -cp 'build/checks;build/MultiMini.jar' app.multimin.ui.AppearancePolicyCheck
           if ($LASTEXITCODE -ne 0) { throw 'Appearance/policy check failed' }
           $env:PYTHONPATH = "$pwd/python"
           python scripts/check-frame-bridge.py build/MultiMini.jar build/checks
@@ -78,3 +78,4 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw 'v1.0.6 already exists; refusing replacement' }
           gh release create v1.0.6 build/release/MultiMini-1.0.6-Windows-x64.zip build/release/MultiMini-1.0.6-Windows-x64.zip.sha256 --repo MaDaAi/MultiMini --target ${{ github.sha }} --title 'MultiMini 1.0.6 - UI refresh and leaner preview rendering' --notes-file docs/RELEASE_V1.0.6.md --latest
           if ($LASTEXITCODE -ne 0) { throw 'Release publishing failed' }
+
