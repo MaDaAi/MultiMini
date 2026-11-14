@@ -21,6 +21,7 @@ class GameIngest:
         self._allowed: dict[str, str] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._clients = threading.BoundedSemaphore(8)
         self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server.bind(("127.0.0.1", 0))
         self._server.listen(2)
@@ -45,7 +46,16 @@ class GameIngest:
                 continue
             except OSError:
                 break
-            threading.Thread(target=self._safe_client, args=(client,), daemon=True).start()
+            if not self._clients.acquire(blocking=False):
+                client.close()
+                continue
+            threading.Thread(target=self._bounded_client, args=(client,), daemon=True).start()
+
+    def _bounded_client(self, client: socket.socket) -> None:
+        try:
+            self._safe_client(client)
+        finally:
+            self._clients.release()
 
     def _safe_client(self, client: socket.socket) -> None:
         try:

@@ -19,9 +19,9 @@ Capture stays local. MultiMini does not record video or stream. Game-window capt
 
 ## Install
 
-Download the Windows x64 installer from [Releases](https://github.com/MaDaAi/MultiMini/releases) and run it. Java, Python, and capture dependencies are bundled. Launch through the installed Start menu or desktop shortcut.
+Download the recommended **Windows x64 portable ZIP** from [Releases](https://github.com/MaDaAi/MultiMini/releases). Extract the entire ZIP and run `MultiMini.exe`; keep the `app` and `runtime` folders beside it. Java, Python, and capture dependencies are bundled. No separate runtime installation is needed.
 
-**Windows only (64-bit).** Linux and macOS support are coming soon; those versions are not available yet. Releases and support are public. The Windows installer is currently unsigned.
+**Windows only (64-bit).** Linux and macOS support are coming soon; those versions are not available yet. Releases and support are public. The Windows app is currently unsigned.
 
 ## Use
 
@@ -50,9 +50,9 @@ Views, sources, transforms, and settings are saved automatically. Keep original 
 
 ## Updates
 
-Download only the installer to set up MultiMini. Installed Windows builds check for updates on launch. When a newer public release is available, choose Update: MultiMini downloads and verifies it automatically, saves your workspace, installs it, and relaunches. You do not need to download or handle checksum files. Saved views, sources, settings, and screenshots remain outside the installation folder and are preserved.
+Windows builds check for updates on launch. When a newer public release is available, choose Update and MultiMini downloads and verifies it, saves your workspace, replaces the app files, and relaunches. You do not need to download or handle checksum files. Saved views, sources, settings, agreement acceptance, and screenshots remain in your user data folders.
 
-Only regular public releases are offered automatically. Offline checks fail quietly; you can check again through Settings or download the newer installer from Releases. GitHub credentials are not embedded in the app.
+Only regular public releases are offered automatically. Portable ZIP releases are recommended for new users. Versions through 1.0.3 only update from installer releases; users on those versions need a one-time manual move to a portable release before receiving ZIP updates. Offline checks fail quietly. GitHub credentials are not embedded in the app.
 
 ## Development
 
@@ -68,4 +68,4 @@ The regular build is available as a safety fallback. Capture performance depends
 
 Publisher: Mansoor Alakoozai, Canada. Report problems through [GitHub Issues](https://github.com/MaDaAi/MultiMini/issues). Remove private captures, personal data, and credentials before sharing reports.
 
-MultiMini uses the [MIT License](LICENSE). Third-party dependencies retain their own licenses. Inno Setup builds the Windows installer. MultiMini does not include OBS source code.
+MultiMini uses the [MIT License](LICENSE). Third-party dependencies retain their own licenses. Inno Setup is used to build optional Windows installer releases. MultiMini does not include OBS source code.

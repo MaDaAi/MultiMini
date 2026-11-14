@@ -1,4 +1,4 @@
-param([string]$Version = '1.0.5', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild, [switch]$PortableOnly)
+param([string]$Version = '1.0.7', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild, [switch]$PortableOnly)
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
@@ -32,7 +32,7 @@ if (-not $SafetyBuild -and (Test-Path 'native\build\multimin-dx11-test.exe')) {
     New-Item -ItemType Directory -Force (Join-Path $InputRoot 'native\build') | Out-Null
     Copy-Item 'native\build\multimin-dx11-test.exe' (Join-Path $InputRoot 'native\build')
 }
-Copy-Item README.md,LICENSE,TERMS.md,PRIVACY.md $InputRoot
+Copy-Item README.md,LICENSE,TERMS.md,EULA.md,PRIVACY.md,COOKIE_POLICY.md,REFUND_POLICY.md,HELP.md,THIRD_PARTY_NOTICES.md $InputRoot
 # Package executable modules only; never copy caches, local data or credentials.
 $BackendRoot = Join-Path $PythonRoot 'multimin_backend'
 New-Item -ItemType Directory -Force $BackendRoot | Out-Null
@@ -47,7 +47,7 @@ Expand-Archive -LiteralPath $Archive -DestinationPath $RuntimeRoot
 Set-Content -LiteralPath (Join-Path $RuntimeRoot 'python314._pth') -Encoding ascii -Value @('python314.zip','.', '..', '..\vendor')
 & $PythonExecutable -m pip install --disable-pip-version-check --only-binary=:all: --target "$PythonRoot\vendor" -r python\requirements.txt
 if ($LASTEXITCODE -ne 0) { throw 'Bundling Python dependencies failed.' }
-& "$RuntimeRoot\python.exe" -I -c "import windows_capture,cv2,numpy,PIL,mss,platformdirs,multimin_backend; print('Bundled Python imports OK')"
+& "$RuntimeRoot\python.exe" -I -c "import windows_capture,PIL,mss,platformdirs,multimin_backend; print('Bundled Python imports OK')"
 if ($LASTEXITCODE -ne 0) { throw 'Embedded runtime dependency check failed.' }
 $Channel = if ($SafetyBuild) { 'Safety' } else { 'Windows' }
 & "$RuntimeRoot\python.exe" (Join-Path $PSScriptRoot 'generate-branding.py') --channel $Channel
@@ -56,6 +56,7 @@ $ImageRoot = Join-Path $PackageRoot 'image'
 & "$Jdk\bin\jpackage.exe" --type app-image --name MultiMini --app-version $Version --vendor 'Mansoor Alakoozai' --icon (Join-Path $ProjectRoot 'installer\assets\multimini.ico') --input $InputRoot --main-jar MultiMini.jar --dest $ImageRoot --add-modules java.desktop,java.management,jdk.management,jdk.unsupported --java-options '--enable-native-access=ALL-UNNAMED' --java-options '-Xmx2g' --java-options '-XX:G1HeapRegionSize=32m'
 if ($LASTEXITCODE -ne 0) { throw 'Native launcher packaging failed.' }
 $AppImage = Join-Path $ImageRoot 'MultiMini'
+if (Test-Path -LiteralPath (Join-Path $Jdk 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $Jdk 'LICENSE') -Destination (Join-Path $AppImage 'runtime\JDK-LICENSE.txt') -Force }
 if ($PortableOnly) {
     $PortableRoot = Join-Path $ProjectRoot ('zip releases\MultiMini-'+$Version+'-Windows-x64')
     if (Test-Path -LiteralPath $PortableRoot) { throw 'Portable output already exists; move it aside before rebuilding.' }

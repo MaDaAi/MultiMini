@@ -23,7 +23,7 @@ final class AccentSliderUI extends BasicSliderUI {
         g.setColor(new Color(palette.line.getRed(), palette.line.getGreen(), palette.line.getBlue(), 115));
         g.fillRoundRect(left, y, width, 6, 6, 6);
         int filled = Math.max(0, thumbRect.x + thumbRect.width / 2 - left);
-        g.setColor(palette.accent); g.fillRoundRect(left, y, Math.min(width, filled), 6, 6, 6);
+        g.setColor(palette.controlAccent()); g.fillRoundRect(left, y, Math.min(width, filled), 6, 6, 6);
         g.dispose();
     }
 
@@ -35,11 +35,12 @@ final class AccentSliderUI extends BasicSliderUI {
         int size = hovered || slider.hasFocus() ? 18 : 16;
         int x = thumbRect.x + (thumbRect.width - size) / 2;
         int y = thumbRect.y + (thumbRect.height - size) / 2;
-        g.setColor(new Color(palette.accent.getRed(), palette.accent.getGreen(), palette.accent.getBlue(), 45));
-        g.fillOval(x - 3, y - 3, size + 6, size + 6);
-        g.setColor(palette.panelRaised); g.fillOval(x, y, size, size);
-        g.setColor(palette.accent); g.setStroke(new BasicStroke(2f)); g.drawOval(x + 1, y + 1, size - 2, size - 2);
-        g.setColor(palette.accent); g.fillOval(x + size / 2 - 3, y + size / 2 - 3, 6, 6);
+        if (hovered || slider.hasFocus()) {
+            g.setColor(Palette.blend(palette.panel, palette.accent, 0.2f));
+            g.fillOval(x - 3, y - 3, size + 6, size + 6);
+        }
+        g.setColor(palette.controlAccent()); g.fillOval(x, y, size, size);
+        g.setColor(Palette.contrastText(palette.controlAccent())); g.fillOval(x + size / 2 - 2, y + size / 2 - 2, 4, 4);
         g.dispose();
     }
 

@@ -1,0 +1,71 @@
+id,name,status,severity,evidence,fix,verification
+01,Exposed database credentials,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+02,Public .env files,PASS,INFORMATIONAL,".gitignore excludes .env, key/certificate files and user data.",,Source inspection
+03,Hardcoded API keys or secrets,UNKNOWN,INFORMATIONAL,No dedicated secret scanner completed; do not infer clean from ignore rules.,,Source inspection
+04,Weak or missing authentication,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+05,Missing server-side authorization,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+06,Cross-user data access,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+07,Open database permissions,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+08,Misconfigured Firebase / Supabase / S3,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+09,Unprotected admin routes,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+10,Production debug tools exposed,UNKNOWN,INFORMATIONAL,Controlled DX11 utility intentionally available in development build; release exclusions require final package review.,,Source inspection
+11,Build logs leaking secrets,UNKNOWN,INFORMATIONAL,Build scripts reviewed locally; remote CI logs not reviewed.,,Source inspection
+12,Verbose production errors,UNKNOWN,INFORMATIONAL,Service forwards raw error strings to UI; disclosure scope and log retention not fully assessed.,,Source inspection
+13,Secrets in Git history,UNKNOWN,INFORMATIONAL,Complete Git history secret scan not performed.,,Source inspection
+14,Secrets shipped in frontend JavaScript,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+15,Client-side-only security checks,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+16,Missing input validation,PASS,INFORMATIONAL,"WorkspaceStore bounds schema, file size, view/source counts; WindowFrameReader bounds pixel sizes.",,Source inspection
+17,SQL injection,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+18,NoSQL injection,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+19,Cross-site scripting (XSS),NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+20,Cross-site request forgery (CSRF),NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+21,Insecure file uploads,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+22,Path traversal,PASS,INFORMATIONAL,"updater.ps1 rejects ZIP traversal, colon paths and symlink entries before extraction; linked install directories not exercised.",,Source inspection
+23,Server-side request forgery (SSRF),NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+24,Broken password-reset flows,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+25,Weak session management,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+26,Weak or incorrectly validated JWTs,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+27,Overly permissive CORS,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+28,Missing rate limits,PASS,INFORMATIONAL,FrameStream and GameIngest bounded client semaphores and socket timeouts added.,,Source inspection
+29,Unprotected staging or test environments,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+30,Default credentials left unchanged,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+31,Webhook signatures not verified,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+32,Frontend-only payment checks,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+33,IDOR / BOLA,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+34,APIs trusting user-controlled roles or IDs,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+35,Sensitive data in logs,UNKNOWN,INFORMATIONAL,Window titles/local paths may appear in workspace/status/errors; comprehensive redaction review pending.,,Source inspection
+36,Sensitive source maps or build artifacts,PASS,INFORMATIONAL,Packaging copies explicit source modules and legal files; outputs ignored by Git; final package deferred.,,Source inspection
+37,Vulnerable or abandoned dependencies,UNKNOWN,INFORMATIONAL,pip-audit not installed; vulnerability database audit not completed.,,Source inspection
+38,Malicious or compromised packages,UNKNOWN,INFORMATIONAL,PyPI dependencies downloaded without pinned hashes; publisher/provenance verification incomplete.,,Source inspection
+39,Prompt injection,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+40,AI tools bypassing user permissions,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+41,Excess database privileges,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+42,Missing audit logs,UNKNOWN,INFORMATIONAL,No full security-event audit log test; local agreement records exist.,,Source inspection
+43,No security monitoring or alerts,UNKNOWN,INFORMATIONAL,No operational incident monitoring verified for release account.,,Source inspection
+44,No tested backup / restore plan,UNKNOWN,INFORMATIONAL,Workspace backup implemented; full crash/update rollback restore matrix not exercised.,,Source inspection
+45,Public internal dashboards,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+46,Missing security headers,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+47,Unsafe cookie settings,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+48,Sensitive data unprotected in transit / at rest,UNKNOWN,INFORMATIONAL,Updates use HTTPS; screenshots/workspace are plaintext protected by OS account permissions; Windows ACL/encryption not verified.,,Source inspection
+49,Poor tenant isolation,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+50,Over-trusting AI-generated code,PASS,INFORMATIONAL,"Manually reviewed capture exclusions, frame transport, updater and existing uncommitted changes; regression tests executed.",,Source inspection
+51,Mass assignment / over-posting,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+52,Command / OS injection,PASS,INFORMATIONAL,Python service uses subprocess argument lists; Java ProcessBuilder uses argument lists; updater uses fixed commands.,,Source inspection
+53,Unsafe deserialization,PASS,INFORMATIONAL,Workspace uses Properties schema; service uses JSON; no pickle/eval deserialization found.,,Source inspection
+54,Misconfigured OAuth / OIDC / social login,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+55,No MFA on privileged accounts,UNKNOWN,INFORMATIONAL,GitHub MFA and branch protection cannot be established from checkout.,,Source inspection
+56,Account enumeration,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+57,Business-logic abuse,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+58,Race conditions,PASS,INFORMATIONAL,Workspace atomic replacement and screenshot cross-process lock; tests passed.,,Source inspection
+59,Webhook replay / duplicate processing,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+60,Overpowered CI/CD credentials,UNKNOWN,INFORMATIONAL,Workflow gives contents:write at workflow scope; release credentials/account settings not fully reviewed.,,Source inspection
+61,Untrusted build actions or scripts,UNKNOWN,INFORMATIONAL,Workflow reviewed; upstream action integrity and execution not independently verified.,,Source inspection
+62,Unpinned build dependencies,FAIL,MEDIUM,requirements.txt uses version ranges without hashes; workflow uses mutable action tags and broad contents:write job permissions.,Pin reviewed build inputs and scope release permissions before publishing.,Source inspection
+63,Security checks fail open,PASS,INFORMATIONAL,Updater requires checksum; legal consent fails closed if documents absent; checksum failure test passed.,,Source inspection
+64,Missing resource limits,PASS,INFORMATIONAL,Frame size ceiling 256MiB and client limits; socket timeouts; 43 tests passed.,,Source inspection
+65,AI sensitive-information disclosure,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+66,Unsafe use of AI output,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+67,AI agents have excessive agency,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+68,Sensitive browser storage,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+69,Open redirects,NOT APPLICABLE,INFORMATIONAL,Local desktop utility has no corresponding web/account/database/payment/AI/tenant feature.,,Source inspection
+70,Unsecured GraphQL / WebSocket / realtime endpoints,FAIL,MEDIUM,FrameStream loopback receiver has no authentication; local processes could read frames if source IDs are discovered.,Add a per-launch authentication capability to Java/Python frame protocol and reject unauthenticated clients; regression coverage required.,Source inspection

@@ -1,5 +1,6 @@
 param([switch]$Details,[string]$TargetVersion='',[switch]$Prepare,[switch]$Apply,[string]$CurrentVersion='0.01',[string]$Prepared='', [string]$ExpectedHash='', [int]$AppPid=0,[string]$InstallDir='')
 $ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 try {
  $cache=Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'MultiMin\updates'

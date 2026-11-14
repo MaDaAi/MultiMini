@@ -33,6 +33,8 @@ public final class PythonBridge implements AutoCloseable {
     public int frameStreamPort() { return frameStreamPort; }
     public boolean gameAvailable() { return gameAvailable; }
     public static boolean prepareNativeDisplayCapture() {
+        // Recording is enabled for ordinary JAR launches too. Exclusion is opt-in.
+        if (!"0".equals(System.getenv("MULTIMINI_RECORDING_DEMO"))) return false;
         try { return SharedFrameBridge.AVAILABLE && SharedFrameBridge.excludeOwnWindows() > 0; }
         catch (LinkageError error) { return false; }
     }

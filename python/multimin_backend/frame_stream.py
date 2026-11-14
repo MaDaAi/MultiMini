@@ -44,6 +44,7 @@ class FrameStream:
         self._frames: dict[str, tuple[int, int, int, int, bytes]] = {}
         self._sequence: dict[str, int] = {}
         self._stop = threading.Event()
+        self._clients = threading.BoundedSemaphore(16)
         self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server.bind(("127.0.0.1", 0))
         self._server.listen(2)
@@ -53,7 +54,7 @@ class FrameStream:
         self._thread.start()
 
     def publish(self, source: str, width: int, height: int, pixels: bytes) -> None:
-        if width <= 0 or height <= 0 or len(pixels) != width * height * 4:
+        if width <= 0 or height <= 0 or width > 16384 or height > 16384 or len(pixels) > 256 * 1024 * 1024 or len(pixels) != width * height * 4:
             return
         with self._lock:
             sequence = self._sequence.get(source, 0) + 1
@@ -84,7 +85,16 @@ class FrameStream:
                 continue
             except OSError:
                 break
-            threading.Thread(target=self._client, args=(client,), daemon=True).start()
+            if not self._clients.acquire(blocking=False):
+                client.close()
+                continue
+            threading.Thread(target=self._bounded_client, args=(client,), daemon=True).start()
+
+    def _bounded_client(self, client: socket.socket) -> None:
+        try:
+            self._client(client)
+        finally:
+            self._clients.release()
 
     def _client(self, client: socket.socket) -> None:
         shared = SharedReply()

@@ -11,8 +11,7 @@ public final class BackgroundPanel extends JPanel {
     @Override protected void paintComponent(Graphics graphics) {
         if (transparent) { super.paintComponent(graphics); return; }
         Graphics2D g = (Graphics2D) graphics.create();
-        Color glow = new Color(Math.min(255, palette.background.getRed() + 24), Math.min(255, palette.background.getGreen() + 28), Math.min(255, palette.background.getBlue() + 34));
-        g.setPaint(new GradientPaint(0, 0, glow, getWidth(), getHeight(), palette.background)); g.fillRect(0, 0, getWidth(), getHeight()); g.dispose();
+        g.setColor(palette.background); g.fillRect(0, 0, getWidth(), getHeight()); g.dispose();
         super.paintComponent(graphics);
     }
 }

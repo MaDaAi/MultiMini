@@ -263,7 +263,7 @@ class WindowsInputBridge:
             pass
 
     def enable_capture_exclusion(self) -> None:
-        if self._hwnd:
+        if self._hwnd and os.environ.get("MULTIMINI_RECORDING_DEMO") == "0":
             self.user32.SetWindowDisplayAffinity(self._hwnd, self.WDA_EXCLUDEFROMCAPTURE)
 
     def set_app_pid(self, pid: int) -> None:
@@ -278,7 +278,7 @@ class WindowsInputBridge:
             if self._original_style is not None:
                 self._set_click_through(False)
             self._overlay_hwnd = self._find_largest_visible_app_window()
-            if self._overlay_hwnd:
+            if self._overlay_hwnd and os.environ.get("MULTIMINI_RECORDING_DEMO") == "0":
                 self.user32.SetWindowDisplayAffinity(self._overlay_hwnd, self.WDA_EXCLUDEFROMCAPTURE)
             self._register_hotkeys(stop_key, swap_key, layer_swap_key)
             # Always pass native mouse events through the preview window.

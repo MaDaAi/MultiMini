@@ -14,6 +14,8 @@ public final class PreviewPanel extends JPanel {
     private final FrameTextureCache frameTextures = new FrameTextureCache();
     private final WindowSurfaceCompositor windowSurfaces = new WindowSurfaceCompositor();
     private View view;
+    private boolean guiHelpers=true;
+    public void setGuiHelpers(boolean visible){guiHelpers=visible;repaint();}
     private IntConsumer selectionListener = ignored -> {};
     private Runnable changeListener = () -> {};
     private int selectedIndex = 1;
@@ -52,6 +54,8 @@ public final class PreviewPanel extends JPanel {
     public PreviewPanel(Palette palette, View view) {
         this.palette = palette;
         this.view = view;
+        getAccessibleContext().setAccessibleName("Composition preview");
+        getAccessibleContext().setAccessibleDescription("Visual composition of the current view. Select sources in the Sources list; opacity and size controls are available beside it.");
         setOpaque(true);
         setBackground(new Color(14, 16, 20));
         MouseAdapter interaction = new MouseAdapter() {
@@ -260,6 +264,7 @@ public final class PreviewPanel extends JPanel {
     @Override protected void paintComponent(Graphics graphics) {
         long paintStarted = System.nanoTime();
         frameTextures.retain(view.sources);
+        if (!locked) setBackground(palette.background);
         super.paintComponent(graphics);
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -284,8 +289,8 @@ public final class PreviewPanel extends JPanel {
         layers.dispose();
 
         if (!locked) {
-            g.setColor(new Color(210, 216, 225));
-            g.setStroke(new BasicStroke(1.5f));
+            g.setColor(palette.line);
+            g.setStroke(new BasicStroke(1f));
             g.drawRect(x, y, width - 1, height - 1);
         }
         if(!locked&&(guideX>=0||guideY>=0)){g.setColor(palette.accent);g.setStroke(new BasicStroke(1f));if(guideX>=0)g.drawLine(guideX,canvas.y,guideX,canvas.y+canvas.height);if(guideY>=0)g.drawLine(canvas.x,guideY,canvas.x+canvas.width,guideY);}
@@ -354,7 +359,7 @@ public final class PreviewPanel extends JPanel {
             g.setColor(Color.WHITE); g.setFont(getFont().deriveFont(Font.BOLD, 12f));
             g.drawString(source.name, bounds.x + 38, bounds.y + 27);
             g.setFont(getFont().deriveFont(9f)); g.setColor(new Color(185, 192, 203));
-            g.drawString(source.kind.label, bounds.x + 17, bounds.y + 43);
+            if(guiHelpers)g.drawString(source.kind.label, bounds.x + 17, bounds.y + 43);
         }
         g.setComposite(AlphaComposite.SrcOver);
         if (!locked && index == selectedIndex) {

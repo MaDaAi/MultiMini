@@ -28,7 +28,6 @@ final class FrameTextureCache implements AutoCloseable {
         if(entry!=null && entry.surface!=null)entry.surface.flush();
         scalers.remove(source);
     }
-    private int acceleratedSources;
 
     Image imageFor(Source source, GraphicsConfiguration configuration) {
         BufferedImage frame = source.liveFrame;
@@ -80,7 +79,7 @@ final class FrameTextureCache implements AutoCloseable {
     }
 
     int countAcceleratedSources() {
-        acceleratedSources = 0;
+        int acceleratedSources = 0;
         for (Entry entry : entries.values())
             if (entry.surface != null && entry.surface.getCapabilities().isAccelerated()) acceleratedSources++;
         return acceleratedSources;

@@ -51,9 +51,25 @@ public final class VectorIcon implements Icon {
                 g.drawLine(size / 4 + 1, size / 2, size - size / 4 - 1, size / 2);
                 break;
             case GEAR:
-                Polygon gear = new Polygon();
-                for (int i = 0; i < 24; i++) { double angle = i * Math.PI / 12.0 - Math.PI / 2.0; int radius = i % 3 == 0 || i % 3 == 1 ? size / 2 - 1 : size / 2 - 4; gear.addPoint(c + (int) Math.round(Math.cos(angle) * radius), c + (int) Math.round(Math.sin(angle) * radius)); }
-                g.drawPolygon(gear); g.drawOval(c - 3, c - 3, 6, 6); break;
+                // Notefira's eight-tooth settings icon (src/ui/icons.tsx),
+                // expressed geometrically on the same 24-unit coordinate grid.
+                Graphics2D cog = (Graphics2D) g.create();
+                cog.scale(size / 24.0, size / 24.0);
+                cog.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                java.awt.geom.Path2D gear = new java.awt.geom.Path2D.Double();
+                for (int tooth=0; tooth<8; tooth++) {
+                    double center=-90+tooth*45;
+                    for (int point=0; point<4; point++) {
+                        double angle=Math.toRadians(center+new double[]{-15,-9,9,15}[point]);
+                        double radius=point==0||point==3?7.4:9.6;
+                        double px=12+radius*Math.cos(angle), py=12+radius*Math.sin(angle);
+                        if(tooth==0&&point==0)gear.moveTo(px,py);else gear.lineTo(px,py);
+                    }
+                    double middle=Math.toRadians(center+22.5), end=Math.toRadians(center+30);
+                    double radius=7.4/Math.cos(Math.toRadians(7.5));
+                    gear.quadTo(12+radius*Math.cos(middle),12+radius*Math.sin(middle),12+7.4*Math.cos(end),12+7.4*Math.sin(end));
+                }
+                gear.closePath();cog.draw(gear);cog.draw(new java.awt.geom.Ellipse2D.Double(8.8,8.8,6.4,6.4));cog.dispose();break;
         }
         g.dispose();
     }
