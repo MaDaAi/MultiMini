@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import tempfile
 import time
 import uuid
@@ -12,6 +13,9 @@ RETENTION_SECONDS = 7 * 24 * 60 * 60
 
 class SnapshotStore:
     def __init__(self, directory: Path | None = None) -> None:
+        if directory is None and sys.platform == "darwin":
+            # Must match PlatformSupport.screenshotDirectory() on macOS.
+            directory = Path.home() / "Library" / "Application Support" / "MultiMini" / "screenshots"
         base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else os.environ.get("XDG_DATA_HOME")
         self.directory = directory or Path(base or str(Path.home() / ".local" / "share")) / "MultiMin" / "screenshots"
         self.directory.mkdir(parents=True, exist_ok=True)

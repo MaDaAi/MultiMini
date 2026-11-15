@@ -280,7 +280,7 @@ public final class PreviewPanel extends JPanel {
     private java.awt.image.BufferedImage linuxOverlayFrame;
 
     @Override protected void paintComponent(Graphics graphics) {
-        if (!locked || !app.multimin.backend.PlatformSupport.isLinux() || !needsTransparentOverlay() || getWidth() <= 0 || getHeight() <= 0) {
+        if (!locked || !app.multimin.backend.PlatformSupport.isPortable() || !needsTransparentOverlay() || getWidth() <= 0 || getHeight() <= 0) {
             paintComposition(graphics);
             return;
         }
@@ -393,7 +393,7 @@ public final class PreviewPanel extends JPanel {
                 ? RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
                 : !locked ? RenderingHints.VALUE_INTERPOLATION_BICUBIC : RenderingHints.VALUE_INTERPOLATION_BILINEAR);
             Image scaled = !nativePixels && !locked ? frameTextures.scaledImage(source,pw,ph) : null;
-            pixels.drawImage(scaled != null ? scaled : locked && app.multimin.backend.PlatformSupport.isLinux()
+            pixels.drawImage(scaled != null ? scaled : locked && app.multimin.backend.PlatformSupport.isPortable()
                 ? source.liveFrame : frameTextures.imageFor(source, getGraphicsConfiguration()), px, py, pw, ph, null);
             pixels.dispose();
         } else if (source.kind == Source.Kind.DISPLAY) {

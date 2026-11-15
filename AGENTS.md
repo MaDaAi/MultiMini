@@ -34,7 +34,9 @@ See ROUTING_MAP.md, ARCHITECTURE.md, docs/LINUX.md and docs/RELEASES.md (one `ma
 is in app/src/main/java. Windows Python service and JNI remain in their existing
 files. Linux platform code lives in `linux_service.py`, `linux_portal.py`,
 `linux_x11.py`, `linux_native_input.py`, `linux_hotkeys.py`, `linux_kwin.py`,
-PlatformSupport and LinuxOverlayInput.
+PlatformSupport and LinuxOverlayInput. `linux_xshm.py` is the fast MIT-SHM X11 reader (falls back to Python Xlib).
+macOS (untested preview) lives in `mac_service.py`, `mac_capture.py`, `mac_input.py`; see docs/MACOS.md.
+`PlatformSupport.isPortable()` (Linux or macOS) gates the shared non-Windows Java paths.
 
 ```
 ./scripts/build-linux.sh

@@ -54,6 +54,9 @@ class LinuxService:
         self.kwin_checked = False
         self.kwin_handles = {}
         self.kwin_uuids = {}
+        # KWin handle -> X11 window id for XWayland clients. These are captured
+        # straight from X11, so no desktop sharing picker is needed.
+        self.kwin_xids = {}
         self.kwin_baseline = None
         self.kwin_active = None
         self.coordinate_scale = (1.0,1.0)
@@ -115,6 +118,8 @@ class LinuxService:
             try:
                 if self.x11 is not None and 0<xid<KWIN_HANDLE_BASE:
                     capture = self._x11_capture(xid, publish, error, path)
+                elif self.x11 is not None and self.kwin_xids.get(xid):
+                    capture = self._x11_capture(self.kwin_xids[xid], publish, error, path)
                 else:
                     if restore_token:
                         capture = self.portal.capture(source_type, publish, error, cursor, restore_token=restore_token)
@@ -194,6 +199,7 @@ class LinuxService:
         if adapter is None:
             return []
         rows=[]
+        x11_rows=None
         for item in adapter.list_windows():
             if int(item.get("pid",0))==self.app_pid or not item.get("title","").strip() or item.get("title","").startswith("MultiMini"):
                 continue
@@ -202,6 +208,16 @@ class LinuxService:
                 handle=KWIN_HANDLE_BASE+len(self.kwin_uuids)+1
                 self.kwin_uuids[token]=handle
                 self.kwin_handles[handle]=token
+            handle=self.kwin_uuids[token]
+            if self.x11 is not None and item.get("nativeWayland") is False:
+                xid=int(item.get("x11WindowId") or 0)
+                if not xid:
+                    if x11_rows is None:
+                        try:x11_rows=self.x11.windows()
+                        except Exception:x11_rows=[]
+                    xid=match_x11_window(item.get("title",""),x11_rows)
+                if xid:self.kwin_xids[handle]=xid
+                else:self.kwin_xids.pop(handle,None)
             x,y,w,h=(round(item["rect"][k]) for k in ("x","y","width","height"))
             rows.append(dict(title64=encoded(item["title"]),process64=encoded("kwin:"+item["process"]),
                              hwnd=self.kwin_uuids[token],left=x,top=y,width=w,height=h))
@@ -544,6 +560,16 @@ class LinuxService:
         else:
             return {"event": "error", "message": f"Unsupported Linux command: {command}"}
         return {"event": "command_applied"}
+
+
+def match_x11_window(title, x11_rows):
+    """Return the X11 id of the only X11 window with exactly this title, else 0."""
+    import base64
+    if not title:
+        return 0
+    wanted = base64.b64encode(title.encode("utf-8")).decode("ascii")
+    matches = [int(row["hwnd"]) for row in x11_rows if row.get("title64") == wanted]
+    return matches[0] if len(matches) == 1 else 0
 
 
 def portal_trigger(key):

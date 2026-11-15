@@ -15,12 +15,7 @@ final class GithubUpdater {
     static void checkOnLaunch(JFrame owner,Runnable save,Runnable exit){if(Boolean.getBoolean("multimin.publicUpdates"))check(owner,save,exit,true);}
     static void show(JFrame owner,Runnable save,Runnable exit){check(owner,save,exit,false);}
     private static void check(JFrame owner, Runnable save, Runnable exit, boolean startup) {
-        if (app.multimin.backend.PlatformSupport.isLinux()) {
-            if (!startup) message(owner, System.getenv("FLATPAK_ID") != null
-                ? "Flatpak manages updates. Use your software center or: flatpak update io.github.MaDaAi.MultiMini\nLocal test bundles require a newer bundle; no public repository is configured."
-                : "Rebuild the Linux app from source, or install a newer MultiMini Flatpak bundle.");
-            return;
-        }
+        if (app.multimin.backend.PlatformSupport.isPortable()) { portableCheck(owner, startup); return; }
         if (busy && startup)return;
         if (busy) { message(owner,"An update operation is already in progress."); return; }
         Path install;
@@ -38,6 +33,80 @@ final class GithubUpdater {
         }.execute();
     }
     private static String current(){return System.getProperty("jpackage.app-version","0.03");}
+
+    /**
+     * Linux and macOS share the Windows release stream (same GitHub releases and
+     * notes) but never install anything themselves: they announce the update and
+     * open the release page. Drafts and prereleases are never "latest".
+     */
+    static final String RELEASES_API="https://api.github.com/repos/MaDaAi/MultiMini/releases/latest";
+    static String platformAssetPattern(){
+        return app.multimin.backend.PlatformSupport.isMac()
+            ? "MultiMini-([0-9]+(?:\\.[0-9]+){0,3})-macOS-[A-Za-z0-9_]+\\.dmg"
+            : "MultiMini-([0-9]+(?:\\.[0-9]+){0,3})-Linux-x86_64\\.flatpak";
+    }
+    record PortableRelease(String version,String notes,String page){}
+    /** Parse GitHub's latest-release JSON; null when it has no asset for this OS. */
+    static PortableRelease parseLatest(String json,String assetPattern){
+        var asset=Pattern.compile("\"name\"\\s*:\\s*\""+assetPattern+"\"").matcher(json);
+        if(!asset.find())return null;
+        var page=Pattern.compile("\"html_url\"\\s*:\\s*\"(https://github\\.com/MaDaAi/MultiMini/releases/tag/[^\"]+)\"").matcher(json);
+        var body=Pattern.compile("\"body\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"").matcher(json);
+        return new PortableRelease(asset.group(1),body.find()?unescapeJson(body.group(1)):"",page.find()?page.group(1):"https://github.com/MaDaAi/MultiMini/releases");
+    }
+    static String unescapeJson(String text){
+        StringBuilder out=new StringBuilder(text.length());
+        for(int i=0;i<text.length();i++){
+            char c=text.charAt(i);
+            if(c!='\\'||i+1>=text.length()){out.append(c);continue;}
+            char n=text.charAt(++i);
+            switch(n){
+                case 'n'->out.append('\n');
+                case 'r'->{}
+                case 't'->out.append('\t');
+                case 'u'->{if(i+4<text.length()){out.append((char)Integer.parseInt(text.substring(i+1,i+5),16));i+=4;}}
+                default->out.append(n);
+            }
+        }
+        return out.toString();
+    }
+    private static void portableCheck(JFrame owner,boolean startup){
+        if(busy)return;
+        busy=true;
+        new SwingWorker<PortableRelease,Void>(){
+            protected PortableRelease doInBackground()throws Exception{
+                var client=java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(8)).followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build();
+                var request=java.net.http.HttpRequest.newBuilder(java.net.URI.create(RELEASES_API)).timeout(java.time.Duration.ofSeconds(15))
+                    .header("Accept","application/vnd.github+json").header("User-Agent","MultiMini-update-check").GET().build();
+                var response=client.send(request,java.net.http.HttpResponse.BodyHandlers.ofString());
+                if(response.statusCode()==404)return null;
+                if(response.statusCode()!=200)throw new IOException("GitHub answered "+response.statusCode());
+                return parseLatest(response.body(),platformAssetPattern());
+            }
+            protected void done(){
+                busy=false;
+                try{
+                    PortableRelease release=get();
+                    if(startup&&(!owner.isShowing()||!owner.isDisplayable()))return;
+                    if(release==null||compareVersions(release.version(),current())<=0){if(!startup)message(owner,"Congrats, you are on the latest available version");return;}
+                    Palette palette=owner instanceof MainWindow main?main.uiPalette():new Palette();
+                    if(!UpdateDialog.offer(owner,palette,current(),release.version(),release.notes()))return;
+                    openPage(owner,release.page());
+                    message(owner,app.multimin.backend.PlatformSupport.isMac()
+                        ? "Download the macOS .dmg from the release page, quit MultiMini and replace the app in Applications.\nYour views, sources, settings and screenshots are kept."
+                        : System.getenv("FLATPAK_ID")!=null
+                            ? "Download the .flatpak from the release page and install it with:\nflatpak --user install MultiMini-"+release.version()+"-Linux-x86_64.flatpak\nYour views, sources, settings and screenshots are kept."
+                            : "Download the newer Linux build from the release page. Your saved data is kept.");
+                }catch(Exception error){if(!startup)message(owner,"Update check failed: "+cause(error));}
+            }
+        }.execute();
+    }
+    private static void openPage(JFrame owner,String page){
+        try{
+            if(java.awt.Desktop.isDesktopSupported()&&java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)){java.awt.Desktop.getDesktop().browse(java.net.URI.create(page));return;}
+            new ProcessBuilder(app.multimin.backend.PlatformSupport.isMac()?"open":"xdg-open",page).start();
+        }catch(Exception error){message(owner,"Open "+page+" in your browser.");}
+    }
     private static void manual(JFrame owner,Path install,Runnable save,Runnable exit){
         Object[] choices={"Open releases","Close"};
         int choice=AppNotice.show(owner,owner instanceof MainWindow main?main.uiPalette():new Palette(),"MultiMini updates","Updates are not publicly accessible yet. Sign in to an authorized GitHub account,\ndownload the newer installer and run it over the existing installation.\nYour saved views, sources, settings and screenshots are preserved.\nOnce releases are public, MultiMini can download and apply updates for you.","Open releases","Close");

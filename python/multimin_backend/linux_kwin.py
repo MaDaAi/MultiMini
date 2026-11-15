@@ -209,7 +209,8 @@ class KWin:
         process: String(window.desktopFileName || window.resourceClass || window.resourceName || ""),
         pid: processId,
         rect: {{x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height}},
-        nativeWayland: typeof window.waylandClient === "boolean" ? window.waylandClient : null
+        nativeWayland: typeof window.waylandClient === "boolean" ? window.waylandClient : null,
+        x11WindowId: (window.waylandClient === false && Number(window.windowId) > 0) ? Number(window.windowId) : 0
       }});
     }}
     return result;

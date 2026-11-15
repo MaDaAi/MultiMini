@@ -108,12 +108,12 @@ public final class MainWindow extends JFrame {
         GraphicsConfiguration screen=multitaskWindow.getGraphicsConfiguration();Rectangle bounds=multitaskWindow.getBounds();
         multitaskControls.setVisible(false);if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();
         javax.swing.Timer settle=new javax.swing.Timer(40,e->new SwingWorker<java.awt.image.BufferedImage,Void>(){
-            protected java.awt.image.BufferedImage doInBackground()throws Exception{if(app.multimin.backend.PlatformSupport.isLinux())return linuxComposition();Rectangle physical=PreviewPanel.toPhysicalScreenBounds(bounds,screen);long target=app.multimin.backend.NativeWindowCompositor.destination(physical.x,physical.y,physical.width,physical.height);int affinity=app.multimin.backend.NativeWindowCompositor.captureAffinity(target,0);if(affinity<0)throw new IllegalStateException("Could not capture multitask composition");java.awt.image.MultiResolutionImage capture;try{capture=new Robot(screen.getDevice()).createMultiResolutionScreenCapture(bounds);}finally{app.multimin.backend.NativeWindowCompositor.captureAffinity(target,affinity);}Image best=capture.getResolutionVariants().stream().max(java.util.Comparator.comparingLong(i->(long)i.getWidth(null)*i.getHeight(null))).orElseThrow();java.awt.image.BufferedImage image=new java.awt.image.BufferedImage(best.getWidth(null),best.getHeight(null),java.awt.image.BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.drawImage(best,0,0,null);g.dispose();return image;}
+            protected java.awt.image.BufferedImage doInBackground()throws Exception{if(app.multimin.backend.PlatformSupport.isPortable())return linuxComposition();Rectangle physical=PreviewPanel.toPhysicalScreenBounds(bounds,screen);long target=app.multimin.backend.NativeWindowCompositor.destination(physical.x,physical.y,physical.width,physical.height);int affinity=app.multimin.backend.NativeWindowCompositor.captureAffinity(target,0);if(affinity<0)throw new IllegalStateException("Could not capture multitask composition");java.awt.image.MultiResolutionImage capture;try{capture=new Robot(screen.getDevice()).createMultiResolutionScreenCapture(bounds);}finally{app.multimin.backend.NativeWindowCompositor.captureAffinity(target,affinity);}Image best=capture.getResolutionVariants().stream().max(java.util.Comparator.comparingLong(i->(long)i.getWidth(null)*i.getHeight(null))).orElseThrow();java.awt.image.BufferedImage image=new java.awt.image.BufferedImage(best.getWidth(null),best.getHeight(null),java.awt.image.BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.drawImage(best,0,0,null);g.dispose();return image;}
             protected void done(){snapshotPending=false;if(!multitask)return;try{var image=get();if(region){backend.send("{\"command\":\"screenshot_selection\",\"enabled\":true}");screenshotSelection=new ScreenshotSelection(multitaskWindow,bounds,image,palette,MainWindow.this::saveMultitaskScreenshot,()->{screenshotSelection=null;if(multitask&&multitaskWindow!=null){multitaskWindow.setVisible(true);
-            if (app.multimin.backend.PlatformSupport.isLinux() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
+            if (app.multimin.backend.PlatformSupport.isPortable() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
                 multitaskWindow.setFocusableWindowState(true);multitaskWindow.requestFocus(); preview.setFocusable(true); preview.requestFocusInWindow();
             }multitaskWindow.toFront();}backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(multitask&&exitHoverTimer!=null)exitHoverTimer.start();});multitaskWindow.setVisible(false);screenshotSelection.setVisible(true);screenshotSelection.toFront();screenshotSelection.requestFocus();}else{saveMultitaskScreenshot(image);exitHoverTimer.start();}}catch(Exception | LinkageError error){if(screenshotSelection!=null){screenshotSelection.dispose();screenshotSelection=null;}if(multitask&&multitaskWindow!=null)multitaskWindow.setVisible(true);
-            if (app.multimin.backend.PlatformSupport.isLinux() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
+            if (app.multimin.backend.PlatformSupport.isPortable() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
                 multitaskWindow.setFocusableWindowState(true);multitaskWindow.requestFocus(); preview.setFocusable(true); preview.requestFocusInWindow();
             }backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(exitHoverTimer!=null)exitHoverTimer.start();showNotice("Screenshot","Could not capture: "+error.getMessage());}}
         }.execute());settle.setRepeats(false);settle.start();
@@ -126,7 +126,7 @@ public final class MainWindow extends JFrame {
     private void openGallery() { if(gallery==null||!gallery.isDisplayable()) gallery=new ScreenshotGallery(palette); gallery.setVisible(true); gallery.toFront(); }
     private void takeSnapshot() {
         if(snapshotPending)return;
-        if(app.multimin.backend.PlatformSupport.isLinux()) {
+        if(app.multimin.backend.PlatformSupport.isPortable()) {
             snapshotPending=true;
             new SwingWorker<Path,Void>() {
                 protected Path doInBackground() throws Exception { return new ScreenshotStore().save(linuxComposition()); }
@@ -197,7 +197,7 @@ public final class MainWindow extends JFrame {
         linuxDirectSource=null;linuxDirectHole=null;preview.setLinuxDirectSource(null);
     }
     private void updateLinuxDirectPresentation() {
-        if(!app.multimin.backend.PlatformSupport.isLinux() || multitaskWindow==null)return;
+        if(!app.multimin.backend.PlatformSupport.isPortable() || multitaskWindow==null)return;
         Source source=multitask && !linuxPermissionDialog && "native".equals(backend.linuxInputMode())
             ? PreviewPanel.linuxDirectCandidate(activeView):null;
         Rectangle hole=source==null?null:preview.sourceBoundsInPanel(activeView.sources.indexOf(source));
@@ -291,7 +291,7 @@ public final class MainWindow extends JFrame {
             }
             else if ("linux_input_mode".equals(event) && multitask && multitaskWindow!=null) {
                 boolean directed=!"native".equals(backend.linuxInputMode());
-                backendStatus.setText("Linux input: "+backend.linuxInputMode());
+                backendStatus.setText(app.multimin.backend.PlatformSupport.osLabel()+" input: "+backend.linuxInputMode());
                 if("unavailable".equals(backend.linuxInputMode())){revealExit();multitaskTargetLabel.setText("Input unavailable for this target");multitaskTargetLabel.setVisible(true);}
                 multitaskWindow.setFocusableWindowState(directed);
                 if(directed){multitaskWindow.requestFocus();preview.requestFocusInWindow();}
@@ -368,19 +368,19 @@ public final class MainWindow extends JFrame {
                     return true;
                 }
             }
-            if (multitask && app.multimin.backend.PlatformSupport.isLinux() && event.getID() == KeyEvent.KEY_PRESSED) {
+            if (multitask && app.multimin.backend.PlatformSupport.isPortable() && event.getID() == KeyEvent.KEY_PRESSED) {
                 String binding = keyBindingForEvent(event);
                 if (binding != null && binding.equals(screenshotKey)) { captureMultitaskScreenshot(false); return true; }
                 if (binding != null && binding.equals(regionScreenshotKey)) { captureMultitaskScreenshot(true); return true; }
                 if (binding != null && binding.equals(stopKeyBinding)) { setMultitask(false); return true; }
                 if (binding != null && binding.equals(layerSwapKeyBinding)) { swapVisibleLayers(); return true; }
             }
-            if (multitask && (!backend.isReady() || app.multimin.backend.PlatformSupport.isLinux()) && event.getID() == KeyEvent.KEY_PRESSED && keyBindingForEvent(event) != null && keyBindingForEvent(event).equals(swapKeyBinding)) {
+            if (multitask && (!backend.isReady() || app.multimin.backend.PlatformSupport.isPortable()) && event.getID() == KeyEvent.KEY_PRESSED && keyBindingForEvent(event) != null && keyBindingForEvent(event).equals(swapKeyBinding)) {
                 cycleQuickSwapTarget(); return true;
             }
             return false;
         });
-        if (app.multimin.backend.PlatformSupport.isLinux())
+        if (app.multimin.backend.PlatformSupport.isPortable())
             new app.multimin.backend.LinuxOverlayInput(backend, preview, () -> multitask);
         GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         for (int i = 0; i < screens.length; i++) {
@@ -606,7 +606,7 @@ public final class MainWindow extends JFrame {
         String target = source.kind == Source.Kind.DISPLAY || source.inputTarget.isBlank() ? "desktop" : source.inputTarget;
         boolean desktopInput = source.kind == Source.Kind.DISPLAY;
         Rectangle mapped = new Rectangle(), excluded = new Rectangle();
-        if (multitask && (source.usesWindowTarget() || app.multimin.backend.PlatformSupport.isLinux())) {
+        if (multitask && (source.usesWindowTarget() || app.multimin.backend.PlatformSupport.isPortable())) {
             try { mapped = preview.sourceBoundsOnScreen(index); } catch (IllegalComponentStateException ignored) { }
         }
         if (multitaskExitButton != null && multitaskExitButton.isShowing()) {
@@ -618,7 +618,7 @@ public final class MainWindow extends JFrame {
             }
             catch (IllegalComponentStateException ignored) { }
         }
-        if(app.multimin.backend.PlatformSupport.isLinux()) {
+        if(app.multimin.backend.PlatformSupport.isPortable()) {
             var transform=preview.getGraphicsConfiguration().getDefaultTransform();
             backend.send("{\"command\":\"linux_coordinate_scale\",\"x\":"+transform.getScaleX()+",\"y\":"+transform.getScaleY()+"}");
         }
@@ -719,7 +719,7 @@ public final class MainWindow extends JFrame {
         for (int i = 0; i < activeView.sources.size(); i++) {
             Source source = activeView.sources.get(i);
             if (source.visible && source.quickSwapInput && (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME)
-                && (!app.multimin.backend.PlatformSupport.isLinux() || (source.liveFrame!=null && (!source.usesWindowTarget() || source.nativeWindowHandle!=0)))) targets.add(i);
+                && (!app.multimin.backend.PlatformSupport.isPortable() || (source.liveFrame!=null && (!source.usesWindowTarget() || source.nativeWindowHandle!=0)))) targets.add(i);
         }
         if (targets.isEmpty()) { backendStatus.setText("Enable a live source’s input-cycle mouse icon to switch input"); multitaskInputLabel.setText("Input target: no quick-swap sources enabled"); return; }
         int current = targets.indexOf(activeView.controlSource);
@@ -763,7 +763,7 @@ public final class MainWindow extends JFrame {
         if (kind == null) return;
         boolean nativeTest = false;
         if (kind == Source.Kind.GAME) {
-            if (!app.multimin.backend.PlatformSupport.isLinux()) {
+            if (!app.multimin.backend.PlatformSupport.isPortable()) {
                 Object mode = JOptionPane.showInputDialog(this,
                     "Choose a backend. WGC captures game windows without graphics hooks.\nProtected or exclusive fullscreen games may be unsupported.\nThe controlled DX11 renderer is for testing purposes only.",
                     "Experimental game capture", JOptionPane.QUESTION_MESSAGE, null,
@@ -821,7 +821,7 @@ public final class MainWindow extends JFrame {
         source.displayDeviceIndex = selectedDisplay;
         if (source.quickSwapInput) source.controlColor = nextControlColor(source);
         if (windowBased) {
-            if (kind == Source.Kind.GAME) { source.captureMethod = app.multimin.backend.PlatformSupport.isLinux() ? "AUTO" : "WGC"; source.quickSwapInput = true; source.controlColor = nextControlColor(source); }
+            if (kind == Source.Kind.GAME) { source.captureMethod = app.multimin.backend.PlatformSupport.isPortable() ? "AUTO" : "WGC"; source.quickSwapInput = true; source.controlColor = nextControlColor(source); }
             source.nativeWindowHandle = windowTarget.hwnd;
             source.windowProcess = windowTarget.process;
             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".bmp").toString();
@@ -915,7 +915,7 @@ public final class MainWindow extends JFrame {
         preferences.putBoolean("captureFpsChoiceV2", true);
         lastAppliedCaptureFps = effectiveCaptureFps();
         windowFrameTimer.setTargetFps(backend.hasFrameNotifications() ? Math.min(30, lastAppliedCaptureFps) : lastAppliedCaptureFps);
-        if (app.multimin.backend.PlatformSupport.isLinux())
+        if (app.multimin.backend.PlatformSupport.isPortable())
             new app.multimin.backend.LinuxOverlayInput(backend, preview, () -> multitask);
         GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         for (int i = 0; i < displayCaptures.size(); i++) {
@@ -1078,7 +1078,9 @@ public final class MainWindow extends JFrame {
         fields.setBorder(new EmptyBorder(2, 0, 8, 0));
         fields.add(settingsGroup("Application"));
         JLabel version = new JLabel(System.getProperty("jpackage.app-version", "Development")); version.setForeground(palette.text); version.setFont(version.getFont().deriveFont(Font.BOLD));
-        fields.add(settingsRow("Build", Boolean.getBoolean("multimin.dev.gameCapture") ? "Experimental capture features enabled" : "Safety build", version));
+        String buildNote = Boolean.getBoolean("multimin.dev.gameCapture") || app.multimin.backend.PlatformSupport.isPortable() ? "Experimental capture features enabled" : "Safety build";
+        if (app.multimin.backend.PlatformSupport.isPortable()) buildNote = app.multimin.backend.PlatformSupport.osStatus() + " · " + buildNote;
+        fields.add(settingsRow(app.multimin.backend.PlatformSupport.osLabel() + " Build", buildNote, version));
         JButton updates = quietButton("Updates…");
         updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } }, () -> { shutdownServices(); dispose(); System.exit(0); }));
         fields.add(settingsRow("Updates", "Private downloads · preserves your workspace", updates));
@@ -1219,7 +1221,7 @@ public final class MainWindow extends JFrame {
     }
     private void styleScrollBar(JScrollBar bar) { ModernUi.scroll(bar,palette); }
     private boolean loadImageSource() {
-        if (app.multimin.backend.PlatformSupport.isLinux()) {
+        if (app.multimin.backend.PlatformSupport.isPortable()) {
             if(!backend.isReady()){showNotice("Image source","Wait for the capture service to start.");return false;}
             JDialog waiting=dialog("Choose an image");
             waiting.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
@@ -1343,7 +1345,7 @@ public final class MainWindow extends JFrame {
     }
 
     private void configureSelectedSource() {
-        if (app.multimin.backend.PlatformSupport.isLinux()) {
+        if (app.multimin.backend.PlatformSupport.isPortable()) {
             Source source = sourceList.getSelectedValue();
             if (source != null && source.kind == Source.Kind.DISPLAY) {
                 if (source.captureFramePath != null) backend.removeWindowCapture(source.captureFramePath);
@@ -1372,14 +1374,14 @@ public final class MainWindow extends JFrame {
     }
 
     private void showWindowSourceSettings(Source source) {
-        boolean linux = app.multimin.backend.PlatformSupport.isLinux();
+        boolean linux = app.multimin.backend.PlatformSupport.isPortable();
         JDialog dialog = dialog(source.kind == Source.Kind.GAME
             ? linux ? "Configure game window capture" : "Configure game window — WGC compatibility"
             : "Configure window capture");
         JPanel body = dialogBody();
         JPanel fields = settingsPage();
-        boolean kdeTarget=app.multimin.backend.PlatformSupport.isLinux() && source.windowProcess.startsWith("kwin:");
-        boolean portalTarget=app.multimin.backend.PlatformSupport.isLinux() && ("portal".equals(source.windowProcess)||kdeTarget);
+        boolean kdeTarget=app.multimin.backend.PlatformSupport.isPortable() && source.windowProcess.startsWith("kwin:");
+        boolean portalTarget=app.multimin.backend.PlatformSupport.isPortable() && ("portal".equals(source.windowProcess)||kdeTarget);
         JTextField name = new JTextField(source.name); name.getAccessibleContext().setAccessibleName("Source name");
         name.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(8,10,8,10)));name.setSelectionColor(palette.accent);name.setSelectedTextColor(palette.selectionText());
         name.setForeground(palette.text); name.setBackground(palette.controlSurface()); name.setCaretColor(palette.text);
@@ -1421,17 +1423,19 @@ public final class MainWindow extends JFrame {
         JCheckBox nativePresentation=new JCheckBox(linux?"Native presentation when this is the only visible window":"Native window presentation in multitask mode",source.nativePresentationEnabled);
         nativePresentation.setOpaque(false);nativePresentation.setForeground(palette.text);nativePresentation.setIcon(new AccentCheckIcon(palette));
         fields.add(nativePresentation);
-        if(app.multimin.backend.PlatformSupport.isLinux() && !portalTarget) captureCursor.setEnabled(false);
+        if(app.multimin.backend.PlatformSupport.isPortable() && !portalTarget) captureCursor.setEnabled(false);
         fields.add(propertyLabel("Capture method"));
-        JComboBox<String> method = new JComboBox<>(app.multimin.backend.PlatformSupport.isLinux() ? new String[]{portalTarget?"Desktop sharing portal":"X11 compositor drawable"} : new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
-        method.getAccessibleContext().setAccessibleName("Capture method"); styleCombo(method); method.setSelectedIndex(app.multimin.backend.PlatformSupport.isLinux()?0:"WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
+        JComboBox<String> method = new JComboBox<>(app.multimin.backend.PlatformSupport.isPortable() ? new String[]{app.multimin.backend.PlatformSupport.isMac()?"macOS ScreenCaptureKit":portalTarget?"Desktop sharing portal":"X11 compositor drawable"} : new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
+        method.getAccessibleContext().setAccessibleName("Capture method"); styleCombo(method); method.setSelectedIndex(app.multimin.backend.PlatformSupport.isPortable()?0:"WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
         if (source.kind == Source.Kind.GAME && !linux) { fields.remove(method); JLabel nativeMethod=new JLabel("Windows Graphics Capture · WGC compatibility");nativeMethod.setOpaque(true);nativeMethod.setBackground(palette.controlSurface());nativeMethod.setForeground(palette.text);nativeMethod.setBorder(new EmptyBorder(10,10,10,10));fields.add(nativeMethod); }
         JLabel methodHint = muted(linux
             ? source.kind == Source.Kind.GAME
                 ? (portalTarget
                     ? "Best-effort capture through desktop window sharing. Protected or exclusive-fullscreen games may not work; game input support varies."
-                    : "Best-effort X11 window capture. Protected or exclusive-fullscreen games may not work; game input support varies.")
-                : "Capture uses the Linux backend; native Windows presentation is unavailable."
+                    : app.multimin.backend.PlatformSupport.isMac()
+                        ? "Untested macOS preview. Needs Screen Recording and Accessibility permission; game input support varies."
+                        : "Best-effort X11 window capture. Protected or exclusive-fullscreen games may not work; game input support varies.")
+                : "Capture uses the "+app.multimin.backend.PlatformSupport.osLabel()+" backend; native Windows presentation is unavailable."
             : source.kind == Source.Kind.GAME ? "WGC captures the selected game window; graphics API hooks are not active." : "Automatic tries WGC, then compatibility capture."); fields.add(methodHint);
         body.add(fields, BorderLayout.CENTER);
         JButton cancel = toolButton("Cancel", "Discard changes"); cancel.addActionListener(event -> dialog.dispose());
@@ -1463,7 +1467,7 @@ public final class MainWindow extends JFrame {
             showNotice("Multitask input unavailable", "The Python input service has not started. Check the status bar and restart MultiMin from this build.");
             return;
         }
-        if(enabled && !multitask && app.multimin.backend.PlatformSupport.isLinux()) {
+        if(enabled && !multitask && app.multimin.backend.PlatformSupport.isPortable()) {
             for(int i=0;i<activeView.sources.size();i++) {
                 Source source=activeView.sources.get(i);
                 if(source.visible && source.quickSwapInput && (source.usesWindowTarget() || source.kind==Source.Kind.DISPLAY) && source.liveFrame==null) {
@@ -1471,7 +1475,7 @@ public final class MainWindow extends JFrame {
                 }
             }
         }
-        if (app.multimin.backend.PlatformSupport.isLinux()) {
+        if (app.multimin.backend.PlatformSupport.isPortable()) {
             for(View view:views)for(int i=0;i<view.sources.size();i++){
                 Source source=view.sources.get(i);
                 source.inputReferenceWidth=enabled && source.liveFrame!=null?source.liveFrame.getWidth():0;
@@ -1488,26 +1492,26 @@ public final class MainWindow extends JFrame {
             }
             preview.setLocked(true);
             multitaskWindow = new JWindow();
-            if(app.multimin.backend.PlatformSupport.isLinux()) multitaskWindow.setType(Window.Type.POPUP);
+            if(app.multimin.backend.PlatformSupport.isPortable()) multitaskWindow.setType(Window.Type.POPUP);
             multitaskWindow.setFocusableWindowState(false);
             multitaskWindow.setAlwaysOnTop(true);
             // Avoid the per-pixel translucent XWayland update path when
             // the composition already paints an opaque black background.
-            multitaskWindow.setBackground(app.multimin.backend.PlatformSupport.isLinux() && !preview.needsTransparentOverlay()
+            multitaskWindow.setBackground(app.multimin.backend.PlatformSupport.isPortable() && !preview.needsTransparentOverlay()
                 ? Color.BLACK : new Color(0, 0, 0, 0));
             multitaskWindow.setContentPane(preview);
             Rectangle screenBounds = device.getDefaultConfiguration().getBounds();
             multitaskWindow.setBounds(screenBounds);
             multitaskWindow.setVisible(true);
-            if(app.multimin.backend.PlatformSupport.isLinux()) {
+            if(app.multimin.backend.PlatformSupport.isPortable()) {
                 long xid=app.multimin.backend.LinuxWindowIdentity.get(multitaskWindow);
                 backend.send("{\"command\":\"linux_overlay_window\",\"xid\":"+xid+"}");
             }
-            if (app.multimin.backend.PlatformSupport.isLinux() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
+            if (app.multimin.backend.PlatformSupport.isPortable() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
                 multitaskWindow.setFocusableWindowState(true);multitaskWindow.requestFocus(); preview.setFocusable(true); preview.requestFocusInWindow();
             }
             multitaskControls = new JWindow();
-            if(app.multimin.backend.PlatformSupport.isLinux()) multitaskControls.setType(Window.Type.POPUP);
+            if(app.multimin.backend.PlatformSupport.isPortable()) multitaskControls.setType(Window.Type.POPUP);
             multitaskControls.setFocusableWindowState(false);
             multitaskControls.setAlwaysOnTop(true);
             multitaskControls.setBackground(new Color(0, 0, 0, 0));
@@ -1534,7 +1538,7 @@ public final class MainWindow extends JFrame {
             inputNoticeTimer = new javax.swing.Timer(1000, event -> multitaskTargetLabel.setVisible(false));
             inputNoticeTimer.setRepeats(false);
             multitaskControls.setVisible(true);
-            if(app.multimin.backend.PlatformSupport.isLinux()) {
+            if(app.multimin.backend.PlatformSupport.isPortable()) {
                 long controlXid=app.multimin.backend.LinuxWindowIdentity.get(multitaskControls);
                 backend.send("{\"command\":\"linux_overlay_controls\",\"xid\":"+controlXid+"}");
             }
@@ -1570,9 +1574,9 @@ public final class MainWindow extends JFrame {
             for (int i = 0; i < activeView.sources.size(); i++) {
                 Source source = activeView.sources.get(i);
                 if (preview.isSourceRendered(i) && source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == device) {
-                    if ((app.multimin.backend.PlatformSupport.isLinux() || (displayCaptures.size() == 1 && device == 0)) && !source.nativeDisplayAttempted && backend.isReady()) {
+                    if ((app.multimin.backend.PlatformSupport.isPortable() || (displayCaptures.size() == 1 && device == 0)) && !source.nativeDisplayAttempted && backend.isReady()) {
                         source.nativeDisplayAttempted = true;
-                        if (app.multimin.backend.PlatformSupport.isLinux() || PythonBridge.prepareNativeDisplayCapture()) {
+                        if (app.multimin.backend.PlatformSupport.isPortable() || PythonBridge.prepareNativeDisplayCapture()) {
                             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".monitor").toString();
                             backend.send("{\"command\":\"register_display_capture\",\"monitor\":" + (device+1) + ",\"path\":\"" + source.captureFramePath.replace("\\", "\\\\") + "\",\"restore_token\":\"" + source.portalRestoreToken.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}");
                         }
@@ -1580,13 +1584,13 @@ public final class MainWindow extends JFrame {
                     if (!source.nativeDisplayFrames) needed = true;
                 }
             }
-            displayCaptures.get(device).setEnabled(needed && !app.multimin.backend.PlatformSupport.isLinux());
+            displayCaptures.get(device).setEnabled(needed && !app.multimin.backend.PlatformSupport.isPortable());
         }
     }
 
     private void refreshWindowFrames() {
         updateLinuxDirectPresentation();
-        if(multitask && app.multimin.backend.PlatformSupport.isLinux() && System.nanoTime()-lastInputCheck>250_000_000L) {
+        if(multitask && app.multimin.backend.PlatformSupport.isPortable() && System.nanoTime()-lastInputCheck>250_000_000L) {
             lastInputCheck=System.nanoTime();backend.send("{\"command\":\"linux_check_input\"}");
         }
         preview.refreshNativePresentation();
@@ -1670,8 +1674,8 @@ public final class MainWindow extends JFrame {
                         source.standbyFrame = frame.backend.contains("memory") ? previous : null;
                         source.activeCaptureBackend = source.nativeGameTest
                             ? "DirectX 11 test capture · CPU transfer" : source.kind == Source.Kind.GAME
-                            ? app.multimin.backend.PlatformSupport.isLinux()
-                                ? "Linux game-window capture · " + frame.backend
+                            ? app.multimin.backend.PlatformSupport.isPortable()
+                                ? app.multimin.backend.PlatformSupport.osLabel() + " game-window capture · " + frame.backend
                                 : "WGC game-window compatibility · " + (frame.backend.contains("shared") ? "shared memory" : "socket memory") : frame.backend;
                         if(source==linuxDirectSource)source.activeCaptureBackend="Native Linux window presentation · capture retained for screenshots";
                         source.captureLatencyMillis = frame.latencyMillis; source.capturedFrames++;
@@ -1728,14 +1732,14 @@ public final class MainWindow extends JFrame {
                 for(View view:views) for(int i=0;i<view.sources.size();i++) {
                     Source source=view.sources.get(i);
                     if(!source.usesWindowTarget() || source.captureFramePath!=null) continue;
-                    if(app.multimin.backend.PlatformSupport.isLinux() && "portal".equals(source.windowProcess)){
+                    if(app.multimin.backend.PlatformSupport.isPortable() && "portal".equals(source.windowProcess)){
                         // A saved portal grant can reconnect without the picker; without one, wait for the user.
                         if(source.portalRestoreToken.isBlank()){source.activeCaptureBackend="Reselect source in desktop picker";continue;}
                         source.captureFramePath=windowFramesDirectory.resolve(java.util.UUID.randomUUID()+".bmp").toString();
                         backend.registerWindowCapture(source.name,source.inputTarget,source.captureFramePath,0,source.captureMethod,source.captureCursor,source.portalRestoreToken);
                         continue;
                     }
-                    if (source.kind==Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isLinux() && !Boolean.getBoolean("multimin.dev.gameCapture")) { source.activeCaptureBackend="Experimental source unavailable in this build";continue; }
+                    if (source.kind==Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isPortable() && !Boolean.getBoolean("multimin.dev.gameCapture")) { source.activeCaptureBackend="Experimental source unavailable in this build";continue; }
                     var matches=targets.stream().filter(t -> t.title.equals(source.inputTarget) && !source.windowProcess.isBlank() && source.windowProcess.equalsIgnoreCase(t.process)).toList();
                     if(matches.size()!=1){source.activeCaptureBackend="Reselect target: window missing or ambiguous";continue;}
                     source.nativeWindowHandle=matches.get(0).hwnd;
@@ -1763,7 +1767,7 @@ public final class MainWindow extends JFrame {
 
     private Source.Kind chooseSourceKind() {
         JDialog dialog = dialog("Add source"); JPanel body = dialogBody(); body.add(new JLabel("Choose a source type"), BorderLayout.NORTH); JPanel choices = transparent(new GridLayout(0, 1, 0, 6)); final Source.Kind[] result = {null};
-        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || (kind == Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isLinux() && !Boolean.getBoolean("multimin.dev.gameCapture"))) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
+        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || (kind == Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isPortable() && !Boolean.getBoolean("multimin.dev.gameCapture"))) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
         body.add(choices, BorderLayout.CENTER); JButton cancel = toolButton("Cancel", "Close"); cancel.addActionListener(event -> dialog.dispose()); JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT)); actions.add(cancel); body.add(actions, BorderLayout.SOUTH);
         dialog.setContentPane(body); dialog.setSize(360, 320); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
     }

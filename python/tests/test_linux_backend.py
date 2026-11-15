@@ -53,8 +53,9 @@ class LinuxTests(unittest.TestCase):
     def test_platform_selection(self):
         self.assertIs(service_class("linux"), LinuxService)
         self.assertEqual(service_class("win32").__name__, "CaptureService")
+        self.assertEqual(service_class("darwin").__name__, "MacService")
         with self.assertRaises(RuntimeError):
-            service_class("darwin")
+            service_class("sunos5")
     def test_capabilities_do_not_claim_wayland_input(self):
         caps = self.service.dispatch({"command": "capabilities"})
         self.assertTrue(caps["window"])
@@ -400,6 +401,41 @@ class LinuxTests(unittest.TestCase):
         self.service.dispatch(dict(command='register_window_capture',path='w'))
         self.assertTrue(self.portal.started.wait(1))
         self.assertEqual(self.portal.restore_token,'')
+
+    def test_xwayland_kde_window_is_captured_from_x11_without_picker(self):
+        from multimin_backend.linux_x11 import encoded
+        from multimin_backend import linux_service as ls
+        class FakeKWin:
+            def list_windows(self):
+                return [dict(uuid="u1",title="Minecraft 1.21",process="java",pid=5,rect=dict(x=0,y=0,width=800,height=600),nativeWayland=False,x11WindowId=0),
+                        dict(uuid="u2",title="Native",process="foot",pid=6,rect=dict(x=0,y=0,width=10,height=10),nativeWayland=True,x11WindowId=0)]
+            def close(self):pass
+        class FakeX11:
+            def windows(self):
+                return [dict(title64=encoded("Minecraft 1.21"),hwnd=4242),dict(title64=encoded("Other"),hwnd=7)]
+        self.service.kwin, self.service.kwin_checked, self.service.x11 = FakeKWin(), True, FakeX11()
+        rows=self.service._kwin_windows()
+        mc=[r for r in rows if r["process64"]==encoded("kwin:java")][0]["hwnd"]
+        native=[r for r in rows if r["process64"]==encoded("kwin:foot")][0]["hwnd"]
+        self.assertEqual(self.service.kwin_xids.get(mc),4242)
+        self.assertNotIn(native,self.service.kwin_xids)
+        started=[]
+        with patch.object(LinuxService,'_x11_capture',lambda s,xid,p,e,path='':started.append(xid) or Capture()):
+            self.service.dispatch(dict(command='register_window_capture',path='mc',hwnd=mc))
+            for _ in range(200):
+                if started:break
+                time.sleep(.005)
+        self.assertEqual(started,[4242])
+        self.assertFalse(self.portal.started.is_set())
+        self.service.x11=None
+
+    def test_x11_title_match_requires_unique_title(self):
+        from multimin_backend.linux_service import match_x11_window
+        from multimin_backend.linux_x11 import encoded
+        rows=[dict(title64=encoded("A"),hwnd=1),dict(title64=encoded("A"),hwnd=2),dict(title64=encoded("B"),hwnd=3)]
+        self.assertEqual(match_x11_window("A",rows),0)
+        self.assertEqual(match_x11_window("B",rows),3)
+        self.assertEqual(match_x11_window("",rows),0)
 
     def test_xdg_screenshot_path(self):
         self.assertEqual(self.service.snapshots.directory, Path(self.temp.name)/'MultiMin'/'screenshots')

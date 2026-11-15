@@ -73,8 +73,11 @@ public final class WindowFrameReader implements AutoCloseable {
             if (shared) SharedFrameBridge.copy(sharedMapping, argb);
             else java.nio.ByteBuffer.wrap(pixelBuffer, 0, length).order(java.nio.ByteOrder.LITTLE_ENDIAN)
                 .asIntBuffer().get(argb);
+            // Captured windows are opaque content. Many GL/Vulkan games leave the
+            // alpha byte at zero, which would otherwise draw as a black/blank layer.
+            if (PlatformSupport.isPortable()) { int pixels = width * height; for (int i = 0; i < pixels; i++) argb[i] |= 0xFF000000; }
             long latency = Math.max(0, (System.nanoTime() - produced) / 1_000_000);
-            Frame frame = new Frame(image, sequence, latency, PlatformSupport.isLinux() ? "Linux capture · memory" : shared ? "Windows Graphics Capture · shared memory" : "Windows Graphics Capture · memory");
+            Frame frame = new Frame(image, sequence, latency, PlatformSupport.isPortable() ? PlatformSupport.osLabel() + " capture · memory" : shared ? "Windows Graphics Capture · shared memory" : "Windows Graphics Capture · memory");
             frame.producedNanos = produced;
             return frame;
         } catch (IOException error) { sharedEnabled = false; close(); throw error; }

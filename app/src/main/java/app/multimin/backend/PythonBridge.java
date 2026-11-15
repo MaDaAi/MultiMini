@@ -85,7 +85,7 @@ public final class PythonBridge implements AutoCloseable {
                         frameNotifications = line.contains("\"frame_notifications\":true");
                         ready = true;
                         startupComplete = true;
-                        status.accept(PlatformSupport.isLinux() ? "Linux capture ready · choose a source to share" : "Input passthrough ready · live display active");
+                        status.accept(PlatformSupport.isPortable() ? PlatformSupport.osLabel() + " capture ready · choose a source to share" : "Input passthrough ready · live display active");
                         flushPendingCommands();
                         while ((line = reader.readLine()) != null) {
                             if(line.contains("\"event\":\"linux_restore_token\"")) {
@@ -245,6 +245,17 @@ public final class PythonBridge implements AutoCloseable {
     private static List<List<String>> pythonCommands() {
         List<List<String>> commands = new ArrayList<>();
         Path source = pythonSourceDirectory();
+        if (PlatformSupport.isMac()) {
+            // The macOS app bundles a relocatable Python with PyObjC under python/runtime.
+            Path bundled = source.resolve("runtime").resolve("bin").resolve("python3");
+            if (Files.isRegularFile(bundled)) commands.add(List.of(bundled.toString(), "-m", "multimin_backend"));
+            String configured = System.getenv("MULTIMIN_PYTHON");
+            if (configured != null && !configured.isBlank()) commands.add(List.of(configured, "-m", "multimin_backend"));
+            Path venv = source.resolve(".venv/bin/python");
+            if (Files.isRegularFile(venv)) commands.add(List.of(venv.toString(), "-m", "multimin_backend"));
+            commands.add(List.of("python3", "-m", "multimin_backend"));
+            return commands;
+        }
         if (PlatformSupport.isLinux()) {
             String configured = System.getenv("MULTIMIN_PYTHON");
             if (configured != null && !configured.isBlank()) commands.add(List.of(configured, "-m", "multimin_backend"));
@@ -296,7 +307,7 @@ public final class PythonBridge implements AutoCloseable {
     }
     private static Path extractBundledPython() {
         String[] modules = {"__init__.py", "__main__.py", "service.py", "snapshots.py", "windows_input.py",
-            "frame_stream.py", "game_ingest.py", "platforms.py", "linux_service.py", "linux_portal.py", "linux_x11.py", "linux_native_input.py", "linux_hotkeys.py", "linux_kwin.py"};
+            "frame_stream.py", "game_ingest.py", "platforms.py", "linux_service.py", "linux_portal.py", "linux_x11.py", "linux_native_input.py", "linux_hotkeys.py", "linux_kwin.py", "linux_xshm.py", "mac_service.py", "mac_capture.py", "mac_input.py"};
         try {
             Path root = Files.createTempDirectory("multimin-backend-");
             Path packageDirectory = Files.createDirectories(root.resolve("multimin_backend"));
@@ -355,7 +366,7 @@ public final class PythonBridge implements AutoCloseable {
         List<ProcessHandle> children = running == null ? List.of() : running.descendants().toList();
         send("{\"command\":\"shutdown\"}");
         if (running != null) {
-            try { if (!running.waitFor(PlatformSupport.isLinux()?6000:1500, java.util.concurrent.TimeUnit.MILLISECONDS)) running.destroy(); }
+            try { if (!running.waitFor(PlatformSupport.isPortable()?6000:1500, java.util.concurrent.TimeUnit.MILLISECONDS)) running.destroy(); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); running.destroy(); }
             for (ProcessHandle child : children) if (child.isAlive()) child.destroy();
         }

@@ -33,7 +33,7 @@ Tag `vX.Y.Z` on `main` and attach every platform's files to that **one** release
 |---|---|---|
 | Windows | `MultiMini-X.Y.Z-Windows-x64.zip` + `.zip.sha256` | In-app updater (GithubUpdater → updater.ps1) |
 | Linux | `MultiMini-X.Y.Z-Linux-x86_64.flatpak` + `.flatpak.sha256` | Flatpak (bundle now; a Flatpak repository later) |
-| macOS (future) | `MultiMini-X.Y.Z-macOS-<arch>.dmg` + `.sha256` | Future macOS updater or manual download |
+| macOS (untested preview) | `MultiMini-X.Y.Z-macOS-arm64.dmg` + `.sha256` | In-app notice opens the release page; user replaces the app |
 
 All platforms share the same release notes (`## Plain English` / `## Detailed`),
 so users get the same notes whatever OS they run.
@@ -45,15 +45,18 @@ This is safe today because each updater matches only its own assets:
   files on the same release are ignored.
 - The Linux app never runs the PowerShell updater; `GithubUpdater` shows Flatpak
   guidance on Linux instead.
-- A future macOS updater must likewise match only `-macOS-` assets.
+- Linux and macOS (`GithubUpdater.portableCheck`) read `releases/latest` and match only `-Linux-x86_64.flatpak` or `-macOS-*.dmg`; they announce and open the page, never install.
+- Windows without a native build machine can use `scripts/package-windows-from-baseline.ps1`, which updates a verified earlier release ZIP (runtime, Python, DLL) with the new JAR and backend sources.
 
 A platform that is not ready for a version simply omits its asset. Its users
 stay on the previous version until a later release ships their file.
 
 ## Linux update path
 
-The Flatpak deliberately has **no network permission**, so the app does not
-check GitHub itself. Updates come from Flatpak:
+Since 1.10 the Flatpak has network access so Settings → Updates (and the
+startup check) can read the same GitHub release as Windows and show its notes;
+it then opens the release page instead of installing anything. Flatpak itself
+still performs the install:
 
 1. **Now (trial):** install the `.flatpak` bundle from the release. Upgrading
    means installing the newer bundle.

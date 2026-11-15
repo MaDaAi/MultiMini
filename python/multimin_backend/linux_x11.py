@@ -236,6 +236,12 @@ class X11Capture:
         d = display.Display()
         win = d.create_resource_object('window', int(xid))
         last_error = 0
+        grabber = None
+        try:
+            from .linux_xshm import XShmGrabber
+            grabber = XShmGrabber(int(xid))
+        except Exception:
+            grabber = None  # Python Xlib path below remains the fallback.
         try:
             win.change_attributes(event_mask=X.StructureNotifyMask)
             d.sync()
@@ -250,6 +256,15 @@ class X11Capture:
                     if win.get_attributes().map_state != X.IsViewable:
                         self.stop.wait(.1)
                         continue
+                    if grabber is not None:
+                        try:
+                            w,h,pixels=grabber.grab()
+                            publish(w,h,pixels)  # Java forces opaque alpha.
+                            self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
+                            continue
+                        except Exception:
+                            grabber.close()
+                            grabber = None
                     geom = win.get_geometry()
                     w,h=geom.width,geom.height
                     if w<=0 or h<=0 or w>16384 or h>16384 or w*h*4>256*1024*1024:
@@ -285,8 +300,9 @@ class X11Capture:
                         raise RuntimeError('Unexpected X11 image stride')
                     # Most X11 windows are depth24 in a 32-bit storage format.
                     # Their unused alpha byte is zero, not transparent content.
-                    if image.depth==24:
-                        data[3::4]=b'\xff'*(w*h)
+                    # Force opaque for every depth: GL/Vulkan windows on depth-32
+                    # visuals often leave alpha at zero, which rendered as black.
+                    data[3::4]=b'\xff'*(w*h)
                     publish(w,h,bytes(data))
                 except Exception as exc:
                     if time.monotonic()-last_error>5:
@@ -294,6 +310,8 @@ class X11Capture:
                         last_error=time.monotonic()
                 self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
         finally:
+            if grabber is not None:
+                grabber.close()
             d.close()
 
     def close(self):
