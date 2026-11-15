@@ -28,10 +28,41 @@ public final class WindowFrameReader implements AutoCloseable {
     private DataOutputStream output;
     private int connectedPort;
     private byte[] pixelBuffer = new byte[0];
-    private boolean sharedEnabled = SharedFrameBridge.AVAILABLE;
+    /** Linux/macOS: frames arrive in a private /dev/shm file instead of the socket. */
+    private static final boolean POSIX_SHARED = PlatformSupport.isPortable() && !Boolean.getBoolean("multimin.disableSharedFrames");
+    private boolean sharedEnabled = SharedFrameBridge.AVAILABLE || POSIX_SHARED;
     private long sharedMapping;
     private String sharedName = "";
     private int sharedBytes;
+    private java.lang.foreign.Arena posixArena;
+    private java.lang.foreign.MemorySegment posixSegment;
+    private static final java.lang.foreign.ValueLayout.OfInt LITTLE_INT =
+        java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+
+    /** Accept only our own frame files: /dev/shm or the temp directory, fixed prefix. */
+    static boolean validPosixMapping(String name) {
+        if (!name.startsWith("/") || name.contains("..")) return false;
+        Path path = Path.of(name);
+        Path parent = path.getParent();
+        if (parent == null || !path.getFileName().toString().matches("multimini-frame-[0-9a-f]{32}")) return false;
+        String dir = parent.toString();
+        String tmp = Path.of(System.getProperty("java.io.tmpdir", "/tmp")).toAbsolutePath().normalize().toString();
+        return dir.equals("/dev/shm") || dir.equals(tmp) || dir.equals("/tmp");
+    }
+
+    private void openPosixMapping(String name, long bytes) throws IOException {
+        releaseSharedMapping();
+        if (!validPosixMapping(name)) throw new IOException("Invalid shared frame name");
+        var arena = java.lang.foreign.Arena.ofShared();
+        try (var channel = java.nio.channels.FileChannel.open(Path.of(name), java.nio.file.StandardOpenOption.READ)) {
+            if (channel.size() < bytes) throw new IOException("Shared frame file is too small");
+            posixSegment = channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, bytes, arena);
+            posixArena = arena;
+        } catch (IOException | RuntimeException error) {
+            arena.close();
+            throw error instanceof IOException io ? io : new IOException(error);
+        }
+    }
 
     public Frame readMemory(String id, long previousSequence, int port) throws IOException {
         return readMemory(id, previousSequence, port, null);
@@ -54,27 +85,40 @@ public final class WindowFrameReader implements AutoCloseable {
             if (shared) {
                 int nameSize = input.readUnsignedShort();
                 if (!sharedEnabled || nameSize <= 0 || nameSize > 200) throw new IOException("Invalid shared frame response");
-                String mappingName = new String(input.readNBytes(nameSize), StandardCharsets.US_ASCII);
-                if (!mappingName.startsWith("Local\\MultiMiniFrame-")) throw new IOException("Invalid shared frame name");
-                if (!mappingName.equals(sharedName) || bytes > sharedBytes) {
-                    releaseSharedMapping();
-                    sharedMapping = SharedFrameBridge.open(mappingName, (int) bytes);
-                    if (sharedMapping == 0) { sharedEnabled = false; throw new IOException("Shared frame mapping failed; using socket fallback"); }
-                    sharedName = mappingName; sharedBytes = (int) bytes;
+                String mappingName = new String(input.readNBytes(nameSize), StandardCharsets.UTF_8);
+                if (POSIX_SHARED) {
+                    if (!mappingName.equals(sharedName) || bytes > sharedBytes) {
+                        try { openPosixMapping(mappingName, bytes); }
+                        catch (IOException error) { sharedEnabled = false; throw new IOException("Shared frame mapping failed; using socket fallback", error); }
+                        sharedName = mappingName; sharedBytes = (int) bytes;
+                    }
+                } else {
+                    if (!mappingName.startsWith("Local\\MultiMiniFrame-")) throw new IOException("Invalid shared frame name");
+                    if (!mappingName.equals(sharedName) || bytes > sharedBytes) {
+                        releaseSharedMapping();
+                        sharedMapping = SharedFrameBridge.open(mappingName, (int) bytes);
+                        if (sharedMapping == 0) { sharedEnabled = false; throw new IOException("Shared frame mapping failed; using socket fallback"); }
+                        sharedName = mappingName; sharedBytes = (int) bytes;
+                    }
                 }
             } else {
                 if (pixelBuffer.length < length) pixelBuffer = new byte[length];
                 input.readFully(pixelBuffer, 0, length);
             }
+            // Linux/macOS frames are opaque content: an RGB image ignores the alpha
+            // byte that many GL/Vulkan games leave at zero (which drew as black),
+            // and opaque images draw faster than ARGB on X11/XRender.
+            int imageType = PlatformSupport.isPortable() ? BufferedImage.TYPE_INT_RGB : BufferedImage.TYPE_INT_ARGB;
             BufferedImage image = reusable != null && reusable.getWidth() == width && reusable.getHeight() == height
-                && reusable.getType() == BufferedImage.TYPE_INT_ARGB
-                ? reusable : new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+                && reusable.getType() == imageType
+                ? reusable : new BufferedImage(width, height, imageType);
             int[] argb = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
-            if (shared) SharedFrameBridge.copy(sharedMapping, argb);
+            if (shared && POSIX_SHARED) java.lang.foreign.MemorySegment.copy(posixSegment, LITTLE_INT, 0, argb, 0, width * height);
+            else if (shared) SharedFrameBridge.copy(sharedMapping, argb);
             else java.nio.ByteBuffer.wrap(pixelBuffer, 0, length).order(java.nio.ByteOrder.LITTLE_ENDIAN)
                 .asIntBuffer().get(argb);
             long latency = Math.max(0, (System.nanoTime() - produced) / 1_000_000);
-            Frame frame = new Frame(image, sequence, latency, shared ? "Windows Graphics Capture · shared memory" : "Windows Graphics Capture · memory");
+            Frame frame = new Frame(image, sequence, latency, PlatformSupport.isPortable() ? PlatformSupport.osLabel() + (shared ? " capture · shared memory" : " capture · memory") : shared ? "Windows Graphics Capture · shared memory" : "Windows Graphics Capture · memory");
             frame.producedNanos = produced;
             return frame;
         } catch (IOException error) { sharedEnabled = false; close(); throw error; }
@@ -105,6 +149,8 @@ public final class WindowFrameReader implements AutoCloseable {
     }
     private void releaseSharedMapping() {
         if (sharedMapping != 0) SharedFrameBridge.release(sharedMapping);
+        if (posixArena != null) posixArena.close();
+        posixArena = null; posixSegment = null;
         sharedMapping = 0; sharedName = ""; sharedBytes = 0;
     }
 }

@@ -1,0 +1,6 @@
+# macOS backend (bundled into the .app by scripts/package-mac.sh). Wheels only.
+pyobjc-core==12.2.2
+pyobjc-framework-Cocoa==12.2.2
+pyobjc-framework-Quartz==12.2.2
+pyobjc-framework-ApplicationServices==12.2.2
+pyobjc-framework-ScreenCaptureKit==12.2.2

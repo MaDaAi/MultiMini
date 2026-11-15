@@ -7,12 +7,12 @@ import java.util.*;
 
 /** Versioned user-owned workspace; never stores captured pixels or reusable HWNDs. */
 final class WorkspaceStore {
- static Path directory(){String base=System.getenv("APPDATA");return base==null||base.isBlank()?Path.of(System.getProperty("user.home"),".config","multimin"):Path.of(base,"MultiMin");}
+ static Path directory(){return app.multimin.backend.PlatformSupport.configDirectory();}
  private final Path file; private Properties previous; private boolean recovered;
  record State(List<View> views,int active){}
  WorkspaceStore(){this(directory().resolve("workspace.properties"));}
  WorkspaceStore(Path file){this.file=file;}
- private static final String[] FIELDS={"name","customName","visible","opacity","scale","scaleX","scaleY","freeTransform","x","y","quickSwapInput","inputTarget","windowProcess","displayDeviceIndex","captureMethod","nativeGameTest","captureCursor","imagePath","nativePresentationEnabled"};
+ private static final String[] FIELDS={"name","customName","visible","opacity","scale","scaleX","scaleY","freeTransform","x","y","quickSwapInput","inputTarget","windowProcess","displayDeviceIndex","captureMethod","nativeGameTest","captureCursor","imagePath","nativePresentationEnabled","portalRestoreToken"};
  State load()throws IOException {
   if(!Files.exists(file))return new State(new ArrayList<>(),0);
   try{return read(file);}catch(Exception primary){try{State state=read(file.resolveSibling(file.getFileName()+".bak"));recovered=true;return state;}catch(Exception backup){throw new IOException("Workspace could not be read. Original files were preserved: "+file,primary);}}
@@ -27,6 +27,7 @@ final class WorkspaceStore {
    for(int j=0;j<sources;j++){
     String s=key+"source."+j+".";Source source=new Source(p.getProperty(s+"name","Source"),Source.Kind.valueOf(p.getProperty(s+"kind")));
     for(String field:FIELDS){String value=p.getProperty(s+field);if(value==null)continue;var f=Source.class.getField(field);if(f.getType()==int.class)f.setInt(source,Integer.parseInt(value));else if(f.getType()==boolean.class)f.setBoolean(source,Boolean.parseBoolean(value));else f.set(source,value);}
+    if(source.portalRestoreToken==null||source.portalRestoreToken.length()>512||!source.portalRestoreToken.matches("[A-Za-z0-9._:/+=-]*"))source.portalRestoreToken="";
     source.opacity=Math.clamp(source.opacity,0,100);source.scale=Math.clamp(source.scale,5,250);source.x=Math.clamp(source.x,0,100);source.y=Math.clamp(source.y,0,100);source.scaleX=Math.clamp(source.scaleX,-1,250);source.scaleY=Math.clamp(source.scaleY,-1,250);source.displayDeviceIndex=Math.max(0,source.displayDeviceIndex);
     source.controlColor=new Color(Integer.parseInt(p.getProperty(s+"color",Integer.toString(source.controlColor.getRGB()))),true);
     v.sources.addElement(source);

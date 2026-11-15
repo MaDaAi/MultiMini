@@ -1,0 +1,10 @@
+# Linux build files must keep LF even when the repo is checked out on Windows
+# (core.autocrlf=true would otherwise break shebangs and Flatpak inputs).
+*.sh text eol=lf
+*.py text eol=lf
+packaging/**/*.json text eol=lf
+packaging/**/*.xml text eol=lf
+packaging/**/*.desktop text eol=lf
+packaging/**/multimini text eol=lf
+VERSION text eol=lf
+.github/workflows/*.yml text eol=lf

@@ -21,6 +21,8 @@ credentials.json
 workspace.properties
 agreement.properties
 /screenshots/
-/.codex/
 
 /zip releases/
+
+/.flatpak-builder/
+/build-linux-classes.*/

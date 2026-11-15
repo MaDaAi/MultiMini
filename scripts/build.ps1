@@ -25,7 +25,10 @@ if (-not $Sources) { throw 'No Java sources found.' }
 $JdkCandidates = @()
 if ($env:JAVA_HOME) { $JdkCandidates += $env:JAVA_HOME }
 if ($env:ProgramFiles) {
-    $JdkCandidates += Get-ChildItem -LiteralPath (Join-Path $env:ProgramFiles 'Java') -Directory -Filter 'jdk-*' -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+    # Prefer the newest installed JDK; the shared source requires Java 21+ (Math.clamp).
+    $JdkCandidates += Get-ChildItem -LiteralPath (Join-Path $env:ProgramFiles 'Java') -Directory -Filter 'jdk-*' -ErrorAction SilentlyContinue |
+        Sort-Object { $v = $null; if ([version]::TryParse(($_.Name -replace '^jdk-', '' -replace '[^0-9.].*$', '' -replace '^(\d+)$', '$1.0'), [ref]$v)) { $v } else { [version]'0.0' } } -Descending |
+        ForEach-Object { $_.FullName }
 }
 $JavacExecutable = $JdkCandidates | ForEach-Object { Join-Path $_ 'bin\javac.exe' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $JavacExecutable) {

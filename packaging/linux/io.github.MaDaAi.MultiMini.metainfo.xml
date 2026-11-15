@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.MaDaAi.MultiMini</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>MultiMini</name>
+  <summary>Compose live windows, displays and images</summary>
+  <developer id="io.github.MaDaAi"><name>Mansoor Alakoozai</name></developer>
+  <description>
+    <p>Arrange live sources in layered views with opacity, transforms, themes and a screenshot gallery.</p>
+    <p>This Linux preview uses the desktop sharing picker on Wayland. Background input routing is currently limited to cooperative X11 applications. Desktop support varies.</p>
+  </description>
+  <launchable type="desktop-id">io.github.MaDaAi.MultiMini.desktop</launchable>
+  <url type="homepage">https://github.com/MaDaAi/MultiMini</url>
+  <url type="bugtracker">https://github.com/MaDaAi/MultiMini/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases><release version="1.10.2" date="2026-11-15"/></releases>
+</component>

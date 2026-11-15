@@ -1,4 +1,4 @@
-from .service import run
+from .platforms import runtime_module
 
 if __name__ == "__main__":
-    run()
+    runtime_module().run()

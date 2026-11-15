@@ -1,0 +1,52 @@
+{
+  "app-id": "io.github.MaDaAi.MultiMini",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.openjdk25"
+  ],
+  "command": "multimini",
+  "finish-args": [
+    "--socket=x11",
+    "--share=ipc",
+    "--share=network",
+    "--device=dri",
+    "--talk-name=org.kde.KWin"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/openjdk25/bin"
+  },
+  "modules": [
+    {
+      "name": "openjdk-runtime",
+      "buildsystem": "simple",
+      "build-commands": [
+        "/usr/lib/sdk/openjdk25/install.sh",
+        "cp -ra /usr/lib/sdk/openjdk25/jvm/openjdk-25/legal /app/jre/legal"
+      ]
+    },
+    {
+      "name": "multimini",
+      "buildsystem": "simple",
+      "build-commands": [
+        "bash scripts/build-linux.sh",
+        "install -Dm755 packaging/linux/multimini /app/bin/multimini",
+        "install -Dm644 build/internal/MultiMini-Linux.jar /app/share/multimini/MultiMini.jar",
+        "install -Dm644 VERSION /app/share/multimini/VERSION",
+        "mkdir -p /app/share/multimini/python /app/share/licenses/multimini",
+        "cp -r python/multimin_backend python/vendor /app/share/multimini/python/",
+        "cp LICENSE THIRD_PARTY_NOTICES.md /app/share/licenses/multimini/",
+        "install -Dm644 packaging/linux/io.github.MaDaAi.MultiMini.desktop /app/share/applications/io.github.MaDaAi.MultiMini.desktop",
+        "install -Dm644 packaging/linux/io.github.MaDaAi.MultiMini.metainfo.xml /app/share/metainfo/io.github.MaDaAi.MultiMini.metainfo.xml",
+        "install -Dm644 app/src/main/resources/app/multimin/multimini-logo.png /app/share/icons/hicolor/256x256/apps/io.github.MaDaAi.MultiMini.png"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "../../build/linux-source"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+MultiMini for Mac - untested preview
+
+1. Drag MultiMini into Applications.
+2. Open it. If macOS says it "cannot be opened" or "cannot verify" it:
+   - macOS 15 (Sequoia) or newer: open System Settings > Privacy & Security,
+     scroll down, and click "Open Anyway" next to MultiMini. Confirm once.
+   - macOS 14 or older: Control-click (right-click) MultiMini in Applications,
+     choose Open, then Open again.
+   This happens because this preview is not signed with a paid Apple
+   Developer ID. You only need to do it once per version.
+3. When asked, allow MultiMini in:
+   - Privacy & Security > Screen & System Audio Recording (to capture windows)
+   - Privacy & Security > Accessibility (to send clicks/keys to the selected app)
+   Quit and reopen MultiMini after granting them.
+
+If macOS says the app is "damaged", run this once in Terminal, then open it:
+   xattr -dr com.apple.quarantine /Applications/MultiMini.app
+
+This build was made without access to a Mac. Please report what works and
+what doesn't at https://github.com/MaDaAi/MultiMini/issues

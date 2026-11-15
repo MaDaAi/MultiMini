@@ -1,4 +1,5 @@
 """Run after compiling native/tests/FrameBridgeCheck.java into build/."""
+import os
 import subprocess
 import sys
 from multimin_backend.frame_stream import FrameStream
@@ -12,6 +13,6 @@ try:
     for shared in (True, False):
         subprocess.run(['java', '--enable-native-access=ALL-UNNAMED',
                         '-Dmultimin.disableSharedFrames=' + str(not shared).lower(),
-                        '-cp', f'{classes};{jar}', 'FrameBridgeCheck', str(stream.port), str(shared).lower()], check=True)
+                        '-cp', os.pathsep.join((classes,jar)), 'FrameBridgeCheck', str(stream.port), str(shared).lower()], check=True)
 finally:
     stream.close()

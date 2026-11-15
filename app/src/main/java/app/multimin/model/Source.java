@@ -56,8 +56,12 @@ public final class Source {
     public transient long lastPresentedCapture;
     public transient double publicationToPaintMillis;
     public boolean nativePresentationEnabled = true;
+    /** Linux ScreenCast portal restore token (single use; replaced after each grant). */
+    public String portalRestoreToken = "";
     public transient boolean nativeCompositionActive;
     public transient int nativeSourceWidth, nativeSourceHeight;
+    /** Preserve canvas geometry while Linux temporarily fits the real input window. */
+    public transient int inputReferenceWidth, inputReferenceHeight;
 
     public Source(String name, Kind kind) {
         this.name = name;

@@ -47,3 +47,22 @@ Tab and Shift+Tab move between controls. Space activates a focused button. Arrow
 ## Need more help?
 Report a problem at https://github.com/MaDaAi/MultiMini/issues. Include your version and the steps that caused it. Remove private screenshots and personal information first: issues are public.
 The other Help pages explain privacy, licensing and saved data. MultiMini processes capture locally; updates contact GitHub. Captured apps may use their own online services.
+
+
+## Linux desktop integration
+
+Linux builds offer X11/XWayland window capture and, on KDE, native window selection
+with desktop sharing permission. For KDE-managed sources, select the same window
+in the sharing picker. Other Wayland desktops can use capture-only sharing.
+
+During multitasking, native input may temporarily fit and focus the selected app
+beneath the composition; exiting or switching restores its original geometry.
+Configure does not control captured apps. Fullscreen games and transformed display
+sources must match their input region; incompatible placement is refused. Game
+windows use desktop/window capture, not graphics API hooks. Compatibility varies.
+
+Right Ctrl switches input and Pause switches visual order on X11/XWayland. Native
+Wayland shortcuts are desktop-owned: assign allowed keys in the permission dialog
+and check the applied descriptions in the hints. The exit control remains separate.
+Linux updates are managed through Flatpak. Local preview bundles need a rebuilt
+bundle until a distribution repository is configured. See docs/LINUX.md in source.

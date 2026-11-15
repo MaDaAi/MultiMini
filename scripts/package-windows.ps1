@@ -1,4 +1,5 @@
-param([string]$Version = '1.0.7', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild, [switch]$PortableOnly)
+param([string]$Version = '', [string]$PythonExecutable = '', [string]$InnoCompiler = '', [switch]$SafetyBuild, [switch]$PortableOnly)
+if (-not $Version) { $Version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\VERSION') -Raw).Trim() }
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot

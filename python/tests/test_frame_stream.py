@@ -1,5 +1,6 @@
 import socket
 import struct
+import sys
 import unittest
 
 from multimin_backend.frame_stream import FrameStream
@@ -69,3 +70,19 @@ class FrameStreamTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PosixSharedReplyTests(unittest.TestCase):
+    @unittest.skipIf(sys.platform == "win32", "POSIX shared frame files")
+    def test_private_file_written_reused_and_removed(self):
+        import os, stat
+        from multimin_backend.frame_stream import SharedReply, POSIX_PREFIX
+        reply = SharedReply()
+        name = reply.write(b"\x01\x02\x03\x04" * 4).decode()
+        self.assertTrue(os.path.basename(name).startswith(POSIX_PREFIX))
+        self.assertEqual(stat.S_IMODE(os.stat(name).st_mode), 0o600)
+        with open(name, "rb") as handle:
+            self.assertEqual(handle.read(16), b"\x01\x02\x03\x04" * 4)
+        self.assertEqual(reply.write(b"\x05" * 8).decode(), name)  # smaller frame reuses the file
+        reply.close()
+        self.assertFalse(os.path.exists(name))
