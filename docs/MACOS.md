@@ -54,7 +54,7 @@ On a Mac with a JDK 25 (Temurin) on PATH:
 ```
 
 Output: `dist/MultiMini-<VERSION>-macOS-arm64.dmg` and `.sha256`. CI builds the
-same file on `macos-14` (Apple Silicon). Intel Macs are not built yet.
+same file on `macos-15` (Apple Silicon). Intel Macs are not built yet.
 
 ## Known gaps / first things to test
 

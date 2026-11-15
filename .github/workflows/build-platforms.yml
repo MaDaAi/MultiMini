@@ -11,7 +11,7 @@ jobs:
   source-checks:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -64,7 +64,7 @@ jobs:
   macos:
     # Untested preview: packaged on Apple Silicon. Signs ad-hoc unless the
     # optional Developer ID secrets below exist (see docs/MACOS.md).
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
       MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
