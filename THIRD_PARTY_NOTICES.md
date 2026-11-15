@@ -11,3 +11,14 @@ Direct and bundled packages in the reviewed Windows 1.0.5 distribution include P
 The app uses its bundled MultiMini logo and code-drawn toolbar icons. The publisher must retain evidence of rights to the supplied logo. No ownership of third-party windows, games, images or screenshots is implied. User-selected content belongs to its respective rights holders. Capturing content does not authorize redistribution or commercial use of it.
 
 GitHub, Windows, Python, Java and other product names identify their respective products. No endorsement by those organizations or by captured applications is implied.
+
+
+## Linux preview package
+
+The Linux Flatpak uses OpenJDK 25 from the Freedesktop SDK extension. Its legal
+notices are retained at `/app/jre/legal`. Python-Xlib 0.33 and six 1.17.0 are
+bundled with their distribution license metadata under
+`/app/share/multimini/python/vendor`. GNOME/Freedesktop runtimes provide Python,
+PyGObject, GLib, GStreamer and PipeWire with their respective runtime notices.
+No Windows capture dependencies, DLLs, or Oracle JDK are included in the Linux
+package. Inspect the actual package before making redistribution claims.

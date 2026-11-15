@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+export MULTIMIN_HOME=/app/share/multimini
+export MULTIMIN_PYTHON=/usr/bin/python3
+export PYTHONPATH=/app/share/multimini/python/vendor
+exec /app/jre/bin/java --enable-native-access=ALL-UNNAMED -Djpackage.app-version="$(cat /app/share/multimini/VERSION)" -jar /app/share/multimini/MultiMini.jar "$@"

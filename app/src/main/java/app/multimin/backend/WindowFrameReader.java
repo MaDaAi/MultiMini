@@ -74,7 +74,7 @@ public final class WindowFrameReader implements AutoCloseable {
             else java.nio.ByteBuffer.wrap(pixelBuffer, 0, length).order(java.nio.ByteOrder.LITTLE_ENDIAN)
                 .asIntBuffer().get(argb);
             long latency = Math.max(0, (System.nanoTime() - produced) / 1_000_000);
-            Frame frame = new Frame(image, sequence, latency, shared ? "Windows Graphics Capture · shared memory" : "Windows Graphics Capture · memory");
+            Frame frame = new Frame(image, sequence, latency, PlatformSupport.isLinux() ? "Linux capture · memory" : shared ? "Windows Graphics Capture · shared memory" : "Windows Graphics Capture · memory");
             frame.producedNanos = produced;
             return frame;
         } catch (IOException error) { sharedEnabled = false; close(); throw error; }

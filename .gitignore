@@ -24,3 +24,6 @@ agreement.properties
 /.codex/
 
 /zip releases/
+
+/.flatpak-builder/
+/build-linux-classes.*/

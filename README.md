@@ -69,3 +69,13 @@ The regular build is available as a safety fallback. Capture performance depends
 Publisher: Mansoor Alakoozai, Canada. Report problems through [GitHub Issues](https://github.com/MaDaAi/MultiMini/issues). Remove private captures, personal data, and credentials before sharing reports.
 
 MultiMini uses the [MIT License](LICENSE). Third-party dependencies retain their own licenses. Inno Setup is used to build optional Windows installer releases. MultiMini does not include OBS source code.
+
+
+## Linux preview
+
+Windows and Linux share the interface and application models in this repository.
+The unpublished Linux preview includes local Flatpak packaging, X11/XWayland
+window input, and optional KDE integration for native Wayland windows. Desktop
+permission prompts and game compatibility vary; this is not a universal game hook.
+See [Linux build and installation](docs/LINUX.md) and the
+[verification record](docs/LINUX_VERIFICATION.md) before relying on a feature.

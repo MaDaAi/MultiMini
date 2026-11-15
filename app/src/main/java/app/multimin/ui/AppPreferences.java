@@ -16,10 +16,7 @@ final class AppPreferences {
     private final Properties values = new Properties();
 
     AppPreferences() {
-        String appData = System.getenv("APPDATA");
-        Path directory = appData == null || appData.isBlank()
-            ? Path.of(System.getProperty("user.home"), ".config", "multimin")
-            : Path.of(appData, "MultiMin");
+        Path directory = app.multimin.backend.PlatformSupport.configDirectory();
         files.add(directory.resolve("settings.properties"));
         files.add(Path.of(System.getProperty("user.home"), ".multimin", "settings.properties"));
         files.add(Path.of(System.getProperty("user.dir"), "multimin-settings.properties"));

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MultiMini
+Comment=Compose live windows, displays and images
+Exec=multimini
+Icon=io.github.MaDaAi.MultiMini
+Terminal=false
+Categories=Utility;Graphics;
+StartupWMClass=app-multimin-Main

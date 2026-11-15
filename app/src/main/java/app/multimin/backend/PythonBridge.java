@@ -22,6 +22,19 @@ public final class PythonBridge implements AutoCloseable {
     private volatile Consumer<String> quickSwapHandler = ignored -> {};
     private volatile Consumer<List<WindowTarget>> windowListHandler = ignored -> {};
     private volatile java.util.function.BiConsumer<String, String> gameStatusHandler = (ignoredPath, ignoredStatus) -> {};
+    private volatile Consumer<String> captureStoppedHandler=ignored->{};
+    private volatile java.util.function.BiConsumer<String,String> restoreTokenHandler=(ignoredPath,ignoredToken)->{};
+    public void setRestoreTokenHandler(java.util.function.BiConsumer<String,String> handler){restoreTokenHandler=handler;}
+    public void setCaptureStoppedHandler(Consumer<String> handler){captureStoppedHandler=handler;}
+    private volatile Consumer<String> imageFileHandler = ignored -> {};
+    public void requestImageFile(Consumer<String> handler) {
+        imageFileHandler = handler;
+        send("{\"command\":\"choose_image\"}");
+    }
+    private final java.util.Map<String,String> linuxShortcuts=new java.util.concurrent.ConcurrentHashMap<>();
+    public String linuxShortcut(String action) { return linuxShortcuts.getOrDefault(action,"Assign in desktop shortcut dialog"); }
+    private volatile String linuxInputMode = "unavailable";
+    public String linuxInputMode() { return linuxInputMode; }
     private volatile boolean ready;
     private volatile boolean startupComplete;
     private volatile int frameStreamPort;
@@ -72,10 +85,38 @@ public final class PythonBridge implements AutoCloseable {
                         frameNotifications = line.contains("\"frame_notifications\":true");
                         ready = true;
                         startupComplete = true;
-                        status.accept("Input passthrough ready · live display active");
+                        status.accept(PlatformSupport.isLinux() ? "Linux capture ready · choose a source to share" : "Input passthrough ready · live display active");
                         flushPendingCommands();
                         while ((line = reader.readLine()) != null) {
-                            if (line.contains("\"event\":\"frame_ready\"")) frameReadyHandler.run();
+                            if(line.contains("\"event\":\"linux_restore_token\"")) {
+                                Matcher tokenPath=Pattern.compile("\"path64\":\"([^\"]*)\"").matcher(line);
+                                Matcher token=Pattern.compile("\"token64\":\"([^\"]*)\"").matcher(line);
+                                if(tokenPath.find()&&token.find())restoreTokenHandler.accept(new String(Base64.getDecoder().decode(tokenPath.group(1)),StandardCharsets.UTF_8),new String(Base64.getDecoder().decode(token.group(1)),StandardCharsets.UTF_8));
+                            }
+                            else if(line.contains("\"event\":\"linux_capture_stopped\"")) {
+                                Matcher stopped=Pattern.compile("\"path64\":\"([^\"]*)\"").matcher(line);
+                                if(stopped.find())captureStoppedHandler.accept(new String(Base64.getDecoder().decode(stopped.group(1)),StandardCharsets.UTF_8));
+                            }
+                            else if (line.contains("\"event\":\"linux_target_lost\"")) quickSwapHandler.accept("linux_target_lost");
+                            else if (line.contains("\"event\":\"linux_permission_prompt\"")) {
+                                quickSwapHandler.accept(line.contains("\"active\":true")?"linux_permission_on":"linux_permission_off");
+                            }
+                            else if (line.contains("\"event\":\"linux_shortcut\"")) {
+                                Matcher action=Pattern.compile("\"action\":\"([^\"]*)\"").matcher(line);
+                                Matcher binding=Pattern.compile("\"binding64\":\"([^\"]*)\"").matcher(line);
+                                if(action.find() && binding.find()) linuxShortcuts.put(action.group(1),new String(Base64.getDecoder().decode(binding.group(1)),StandardCharsets.UTF_8));
+                                quickSwapHandler.accept("linux_shortcuts");
+                            }
+                            else if (line.contains("\"event\":\"linux_input_mode\"")) {
+                                Matcher modeMatch=Pattern.compile("\"mode\":\"([^\"]*)\"").matcher(line);
+                                if(modeMatch.find()) linuxInputMode=modeMatch.group(1);
+                                quickSwapHandler.accept("linux_input_mode");
+                            }
+                            else if (line.contains("\"event\":\"image_file\"")) {
+                                Matcher pathMatch=Pattern.compile("\"path64\":\"([^\"]*)\"").matcher(line);
+                                if(pathMatch.find()) imageFileHandler.accept(new String(Base64.getDecoder().decode(pathMatch.group(1)),StandardCharsets.UTF_8));
+                            }
+                            else if (line.contains("\"event\":\"frame_ready\"")) frameReadyHandler.run();
                             else if (line.contains("\"event\":\"screenshot_region\"")) quickSwapHandler.accept("screenshot_region");
                             else if (line.contains("\"event\":\"screenshot_full\"")) quickSwapHandler.accept("screenshot_full");
                             else if (line.contains("\"event\":\"quick_swap\"")) quickSwapHandler.accept("quick_swap");
@@ -148,10 +189,13 @@ public final class PythonBridge implements AutoCloseable {
     public void setInputTarget(String name, long hwnd, int x, int y, int width, int height,
                                int excludeX, int excludeY, int excludeWidth, int excludeHeight,
                                boolean desktopInput) {
+        setInputTarget(name,hwnd,x,y,width,height,excludeX,excludeY,excludeWidth,excludeHeight,desktopInput,"");
+    }
+    public void setInputTarget(String name,long hwnd,int x,int y,int width,int height,int excludeX,int excludeY,int excludeWidth,int excludeHeight,boolean desktopInput,String sourcePath) {
         send("{\"command\":\"set_input_target\",\"name\":\"" + escape(name) + "\",\"hwnd\":" + hwnd +
             ",\"x\":" + x + ",\"y\":" + y + ",\"width\":" + width + ",\"height\":" + height +
             ",\"exclude_x\":" + excludeX + ",\"exclude_y\":" + excludeY + ",\"exclude_width\":" + excludeWidth + ",\"exclude_height\":" + excludeHeight +
-            ",\"desktop_input\":" + desktopInput + "}");
+            ",\"desktop_input\":" + desktopInput + ",\"source_path\":\""+escape(sourcePath==null?"":sourcePath)+"\"}");
     }
     public void setMultitaskOverlay(boolean enabled, boolean clickThrough) {
         setMultitaskOverlay(enabled, clickThrough, "END");
@@ -172,12 +216,17 @@ public final class PythonBridge implements AutoCloseable {
         registerWindowCapture(id, title, path, hwnd, method, true);
     }
     public void registerWindowCapture(String id, String title, String path, long hwnd, String method, boolean captureCursor) {
-        send("{\"command\":\"register_window_capture\",\"id\":\"" + escape(id) + "\",\"title\":\"" + escape(title) + "\",\"path\":\"" + escape(path) + "\",\"hwnd\":" + hwnd + ",\"method\":\"" + escape(method) + "\",\"capture_cursor\":" + captureCursor + "}");
+        registerWindowCapture(id, title, path, hwnd, method, captureCursor, "");
     }
-    public void requestWindowList(Consumer<List<WindowTarget>> handler) {
+    /** restoreToken lets a Linux portal reuse an earlier grant; Windows ignores it. */
+    public void registerWindowCapture(String id, String title, String path, long hwnd, String method, boolean captureCursor, String restoreToken) {
+        send("{\"command\":\"register_window_capture\",\"id\":\"" + escape(id) + "\",\"title\":\"" + escape(title) + "\",\"path\":\"" + escape(path) + "\",\"hwnd\":" + hwnd + ",\"method\":\"" + escape(method) + "\",\"capture_cursor\":" + captureCursor + ",\"restore_token\":\"" + escape(restoreToken == null ? "" : restoreToken) + "\"}");
+    }
+    public void requestWindowList(Consumer<List<WindowTarget>> handler) { requestWindowList(handler,"all"); }
+    public void requestWindowList(Consumer<List<WindowTarget>> handler,String platform) {
         windowListHandler = handler == null ? ignored -> {} : handler;
         if (startupComplete && !ready) { windowListHandler.accept(List.of()); return; }
-        send("{\"command\":\"list_windows\"}");
+        send("{\"command\":\"list_windows\",\"platform\":\""+escape(platform)+"\"}");
     }
     public void removeWindowCapture(String path) {
         send("{\"command\":\"remove_window_capture\",\"path\":\"" + escape(path) + "\"}");
@@ -196,6 +245,14 @@ public final class PythonBridge implements AutoCloseable {
     private static List<List<String>> pythonCommands() {
         List<List<String>> commands = new ArrayList<>();
         Path source = pythonSourceDirectory();
+        if (PlatformSupport.isLinux()) {
+            String configured = System.getenv("MULTIMIN_PYTHON");
+            if (configured != null && !configured.isBlank()) commands.add(List.of(configured, "-m", "multimin_backend"));
+            Path venv = source.resolve(".venv/bin/python");
+            if (Files.isRegularFile(venv)) commands.add(List.of(venv.toString(), "-m", "multimin_backend"));
+            commands.add(List.of("python3", "-m", "multimin_backend"));
+            return commands;
+        }
         Path bundledRuntime = source.resolve("runtime").resolve("python.exe");
         if (Files.isRegularFile(bundledRuntime)) commands.add(List.of(bundledRuntime.toString(), "-m", "multimin_backend"));
         commands.add(List.of("python-backend.exe"));
@@ -239,7 +296,7 @@ public final class PythonBridge implements AutoCloseable {
     }
     private static Path extractBundledPython() {
         String[] modules = {"__init__.py", "__main__.py", "service.py", "snapshots.py", "windows_input.py",
-            "frame_stream.py", "game_ingest.py"};
+            "frame_stream.py", "game_ingest.py", "platforms.py", "linux_service.py", "linux_portal.py", "linux_x11.py", "linux_native_input.py", "linux_hotkeys.py", "linux_kwin.py"};
         try {
             Path root = Files.createTempDirectory("multimin-backend-");
             Path packageDirectory = Files.createDirectories(root.resolve("multimin_backend"));
@@ -290,7 +347,7 @@ public final class PythonBridge implements AutoCloseable {
             this.process = process; this.title = title; this.hwnd = hwnd;
             this.left = left; this.top = top; this.width = width; this.height = height;
         }
-        @Override public String toString() { return "[" + process + "]: " + title + (windowNumber > 0 ? " — window " + windowNumber : ""); }
+        @Override public String toString() { return (process.startsWith("kwin:") ? title : "[" + process + "]: " + title) + (windowNumber > 0 ? " — window " + windowNumber : ""); }
     }
 
     @Override public void close() {
@@ -298,7 +355,7 @@ public final class PythonBridge implements AutoCloseable {
         List<ProcessHandle> children = running == null ? List.of() : running.descendants().toList();
         send("{\"command\":\"shutdown\"}");
         if (running != null) {
-            try { if (!running.waitFor(1500, java.util.concurrent.TimeUnit.MILLISECONDS)) running.destroy(); }
+            try { if (!running.waitFor(PlatformSupport.isLinux()?6000:1500, java.util.concurrent.TimeUnit.MILLISECONDS)) running.destroy(); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); running.destroy(); }
             for (ProcessHandle child : children) if (child.isAlive()) child.destroy();
         }

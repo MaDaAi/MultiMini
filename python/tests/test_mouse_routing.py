@@ -2,6 +2,7 @@ import ctypes
 import queue
 import threading
 import unittest
+from unittest.mock import patch
 
 from multimin_backend.windows_input import _MouseHookData, _Point, _Rect, WindowsInputBridge
 
@@ -177,7 +178,10 @@ class MouseRoutingTests(unittest.TestCase):
             for hwnd in (88, 77):
                 callback(hwnd, 0)
         instance.user32.EnumWindows = enumerate_windows
-        self.assertEqual(77, instance._find_largest_visible_app_window())
+        # WINFUNCTYPE exists only on Windows; this fixture calls the callback
+        # directly, so the host C calling convention is sufficient on Linux.
+        with patch.object(ctypes, "WINFUNCTYPE", getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE), create=True):
+            self.assertEqual(77, instance._find_largest_visible_app_window())
 
     def test_layer_input_switch_preserves_opacity_and_visual_order(self):
         instance = bridge()

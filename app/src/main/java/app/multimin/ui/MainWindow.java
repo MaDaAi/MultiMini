@@ -108,8 +108,14 @@ public final class MainWindow extends JFrame {
         GraphicsConfiguration screen=multitaskWindow.getGraphicsConfiguration();Rectangle bounds=multitaskWindow.getBounds();
         multitaskControls.setVisible(false);if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();
         javax.swing.Timer settle=new javax.swing.Timer(40,e->new SwingWorker<java.awt.image.BufferedImage,Void>(){
-            protected java.awt.image.BufferedImage doInBackground()throws Exception{Rectangle physical=PreviewPanel.toPhysicalScreenBounds(bounds,screen);long target=app.multimin.backend.NativeWindowCompositor.destination(physical.x,physical.y,physical.width,physical.height);int affinity=app.multimin.backend.NativeWindowCompositor.captureAffinity(target,0);if(affinity<0)throw new IllegalStateException("Could not capture multitask composition");java.awt.image.MultiResolutionImage capture;try{capture=new Robot(screen.getDevice()).createMultiResolutionScreenCapture(bounds);}finally{app.multimin.backend.NativeWindowCompositor.captureAffinity(target,affinity);}Image best=capture.getResolutionVariants().stream().max(java.util.Comparator.comparingLong(i->(long)i.getWidth(null)*i.getHeight(null))).orElseThrow();java.awt.image.BufferedImage image=new java.awt.image.BufferedImage(best.getWidth(null),best.getHeight(null),java.awt.image.BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.drawImage(best,0,0,null);g.dispose();return image;}
-            protected void done(){snapshotPending=false;if(!multitask)return;try{var image=get();if(region){backend.send("{\"command\":\"screenshot_selection\",\"enabled\":true}");screenshotSelection=new ScreenshotSelection(multitaskWindow,bounds,image,palette,MainWindow.this::saveMultitaskScreenshot,()->{screenshotSelection=null;if(multitask&&multitaskWindow!=null){multitaskWindow.setVisible(true);multitaskWindow.toFront();}backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(multitask&&exitHoverTimer!=null)exitHoverTimer.start();});multitaskWindow.setVisible(false);screenshotSelection.setVisible(true);screenshotSelection.toFront();screenshotSelection.requestFocus();}else{saveMultitaskScreenshot(image);exitHoverTimer.start();}}catch(Exception | LinkageError error){if(screenshotSelection!=null){screenshotSelection.dispose();screenshotSelection=null;}if(multitask&&multitaskWindow!=null)multitaskWindow.setVisible(true);backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(exitHoverTimer!=null)exitHoverTimer.start();showNotice("Screenshot","Could not capture: "+error.getMessage());}}
+            protected java.awt.image.BufferedImage doInBackground()throws Exception{if(app.multimin.backend.PlatformSupport.isLinux())return linuxComposition();Rectangle physical=PreviewPanel.toPhysicalScreenBounds(bounds,screen);long target=app.multimin.backend.NativeWindowCompositor.destination(physical.x,physical.y,physical.width,physical.height);int affinity=app.multimin.backend.NativeWindowCompositor.captureAffinity(target,0);if(affinity<0)throw new IllegalStateException("Could not capture multitask composition");java.awt.image.MultiResolutionImage capture;try{capture=new Robot(screen.getDevice()).createMultiResolutionScreenCapture(bounds);}finally{app.multimin.backend.NativeWindowCompositor.captureAffinity(target,affinity);}Image best=capture.getResolutionVariants().stream().max(java.util.Comparator.comparingLong(i->(long)i.getWidth(null)*i.getHeight(null))).orElseThrow();java.awt.image.BufferedImage image=new java.awt.image.BufferedImage(best.getWidth(null),best.getHeight(null),java.awt.image.BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.drawImage(best,0,0,null);g.dispose();return image;}
+            protected void done(){snapshotPending=false;if(!multitask)return;try{var image=get();if(region){backend.send("{\"command\":\"screenshot_selection\",\"enabled\":true}");screenshotSelection=new ScreenshotSelection(multitaskWindow,bounds,image,palette,MainWindow.this::saveMultitaskScreenshot,()->{screenshotSelection=null;if(multitask&&multitaskWindow!=null){multitaskWindow.setVisible(true);
+            if (app.multimin.backend.PlatformSupport.isLinux() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
+                multitaskWindow.setFocusableWindowState(true);multitaskWindow.requestFocus(); preview.setFocusable(true); preview.requestFocusInWindow();
+            }multitaskWindow.toFront();}backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(multitask&&exitHoverTimer!=null)exitHoverTimer.start();});multitaskWindow.setVisible(false);screenshotSelection.setVisible(true);screenshotSelection.toFront();screenshotSelection.requestFocus();}else{saveMultitaskScreenshot(image);exitHoverTimer.start();}}catch(Exception | LinkageError error){if(screenshotSelection!=null){screenshotSelection.dispose();screenshotSelection=null;}if(multitask&&multitaskWindow!=null)multitaskWindow.setVisible(true);
+            if (app.multimin.backend.PlatformSupport.isLinux() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
+                multitaskWindow.setFocusableWindowState(true);multitaskWindow.requestFocus(); preview.setFocusable(true); preview.requestFocusInWindow();
+            }backend.send("{\"command\":\"screenshot_selection\",\"enabled\":false}");if(exitHoverTimer!=null)exitHoverTimer.start();showNotice("Screenshot","Could not capture: "+error.getMessage());}}
         }.execute());settle.setRepeats(false);settle.start();
     }
     private ScreenshotGallery gallery;
@@ -120,6 +126,14 @@ public final class MainWindow extends JFrame {
     private void openGallery() { if(gallery==null||!gallery.isDisplayable()) gallery=new ScreenshotGallery(palette); gallery.setVisible(true); gallery.toFront(); }
     private void takeSnapshot() {
         if(snapshotPending)return;
+        if(app.multimin.backend.PlatformSupport.isLinux()) {
+            snapshotPending=true;
+            new SwingWorker<Path,Void>() {
+                protected Path doInBackground() throws Exception { return new ScreenshotStore().save(linuxComposition()); }
+                protected void done(){snapshotPending=false;try{openGallery();gallery.reload(get());}catch(Exception error){showNotice("Screenshot", "Could not save composition: "+error.getMessage());}}
+            }.execute();
+            return;
+        }
         if(!backend.isReady()){snapshotPending=true;captureSnapshotFallback();return;}
         snapshotPending=true;
         backend.setSnapshotHandler(result -> SwingUtilities.invokeLater(()->{
@@ -128,6 +142,20 @@ public final class MainWindow extends JFrame {
             else {openGallery();gallery.reload(Path.of(result));}
         }));
         snapshotTimeout=new javax.swing.Timer(30000,e->{snapshotPending=false;showNotice("Screenshot","Capture did not respond. Please try again.");});snapshotTimeout.setRepeats(false);snapshotTimeout.start();backend.requestSnapshot();
+    }
+    private java.awt.image.BufferedImage linuxComposition() throws Exception {
+        final java.awt.image.BufferedImage[] result={null};
+        Runnable render=()->{
+            var transform=preview.getGraphicsConfiguration().getDefaultTransform();
+            int width=Math.max(1,(int)Math.round(preview.getWidth()*transform.getScaleX()));
+            int height=Math.max(1,(int)Math.round(preview.getHeight()*transform.getScaleY()));
+            var image=new java.awt.image.BufferedImage(width,height,java.awt.image.BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphics=image.createGraphics();
+            graphics.scale(transform.getScaleX(),transform.getScaleY());
+            preview.printAll(graphics);graphics.dispose();result[0]=image;
+        };
+        if(SwingUtilities.isEventDispatchThread())render.run();else SwingUtilities.invokeAndWait(render);
+        return result[0];
     }
     private void captureSnapshotFallback() {
         // A loose JAR need not have Pillow installed. Use Java's built-in screen
@@ -148,10 +176,44 @@ public final class MainWindow extends JFrame {
         Rectangle r=visible&&exitHotspot!=null ? PreviewPanel.toPhysicalScreenBounds(exitHotspot,multitaskControls.getGraphicsConfiguration()) : new Rectangle();
         backend.send("{\"command\":\"set_overlay_control_region\",\"x\":"+r.x+",\"y\":"+r.y+",\"width\":"+r.width+",\"height\":"+r.height+"}");
     }
-    private void revealExit() { if(multitaskControls==null)return;boolean wasVisible=multitaskControls.isVisible();multitaskControls.setVisible(true);if(!wasVisible)overlayControlRegion(true);if(exitHideTimer!=null)exitHideTimer.restart(); }
+    private void revealExit() { if(multitaskControls==null||linuxPermissionDialog)return;boolean wasVisible=multitaskControls.isVisible();multitaskControls.setVisible(true);if(!wasVisible)overlayControlRegion(true);if(exitHideTimer!=null)exitHideTimer.restart(); }
 
     private View activeView;
     private boolean multitask;
+    private boolean linuxPermissionDialog;
+    private long lastInputCheck;
+    private Source linuxDirectSource;
+    private Rectangle linuxDirectHole;
+    /** Background capture rate while the real window is presented natively. */
+    private static final int LINUX_BACKGROUND_CAPTURE_FPS=12;
+    private void linuxBackgroundCapture(Source source,int fps) {
+        if(source==null||source.captureFramePath==null)return;
+        backend.send("{\"command\":\"linux_background_capture\",\"path\":\""+source.captureFramePath.replace("\\","\\\\").replace("\"","\\\"")+"\",\"fps\":"+fps+"}");
+    }
+    private void resetLinuxDirectPresentation() {
+        if(linuxDirectSource==null)return;
+        if(multitaskWindow!=null)multitaskWindow.setShape(null);
+        linuxBackgroundCapture(linuxDirectSource,0);
+        linuxDirectSource=null;linuxDirectHole=null;preview.setLinuxDirectSource(null);
+    }
+    private void updateLinuxDirectPresentation() {
+        if(!app.multimin.backend.PlatformSupport.isLinux() || multitaskWindow==null)return;
+        Source source=multitask && !linuxPermissionDialog && "native".equals(backend.linuxInputMode())
+            ? PreviewPanel.linuxDirectCandidate(activeView):null;
+        Rectangle hole=source==null?null:preview.sourceBoundsInPanel(activeView.sources.indexOf(source));
+        if(hole!=null && (hole.isEmpty() || !new Rectangle(0,0,preview.getWidth(),preview.getHeight()).contains(hole)))source=null;
+        if(source==null){resetLinuxDirectPresentation();return;}
+        if(source==linuxDirectSource && hole.equals(linuxDirectHole))return;
+        try {
+            var shape=new java.awt.geom.Area(new Rectangle(0,0,multitaskWindow.getWidth(),multitaskWindow.getHeight()));
+            shape.subtract(new java.awt.geom.Area(hole));
+            multitaskWindow.setShape(shape);
+            Toolkit.getDefaultToolkit().sync();
+            if(linuxDirectSource!=null&&linuxDirectSource!=source)linuxBackgroundCapture(linuxDirectSource,0);
+            linuxDirectSource=source;linuxDirectHole=new Rectangle(hole);preview.setLinuxDirectSource(source);
+            linuxBackgroundCapture(source,LINUX_BACKGROUND_CAPTURE_FPS);
+        } catch(UnsupportedOperationException | IllegalArgumentException error) { resetLinuxDirectPresentation(); }
+    }
     private final WorkspaceStore workspaceStore = new WorkspaceStore();
     private javax.swing.Timer workspaceTimer;
     private boolean workspaceWritable = true, restoredTargetsRequested;
@@ -186,8 +248,56 @@ public final class MainWindow extends JFrame {
         applyUiDefaults();LegalConsent.setPalette(palette);
         buildUi();refreshTheme();
         bindShortcuts();
+        backend.setRestoreTokenHandler((path,token)->SwingUtilities.invokeLater(()->{
+            boolean changed=false;
+            for(View view:views)for(int i=0;i<view.sources.size();i++){
+                Source source=view.sources.get(i);
+                if(path.equals(source.captureFramePath)&&!token.equals(source.portalRestoreToken)){source.portalRestoreToken=token;changed=true;}
+            }
+            if(changed)saveWorkspace();
+        }));
+        backend.setCaptureStoppedHandler(path->SwingUtilities.invokeLater(()->{
+            for(View view:views)for(int i=0;i<view.sources.size();i++){
+                Source source=view.sources.get(i);
+                if(path.equals(source.captureFramePath)){
+                    source.captureFramePath=null;source.nativeWindowHandle=0;source.liveFrame=null;source.standbyFrame=null;
+                    source.nativeDisplayFrames=false;source.activeCaptureBackend="Capture stopped · reselect source";
+                    backend.removeWindowCapture(path);
+                }
+            }
+            sourceList.repaint();preview.repaint();
+        }));
         backend.setQuickSwapHandler(event -> SwingUtilities.invokeLater(() -> {
-            if ("screenshot_full".equals(event) && multitask) captureMultitaskScreenshot(false);
+            if("linux_target_lost".equals(event) && multitask) {setMultitask(false);backendStatus.setText("Input target capture stopped; choose or reconnect a source.");}
+            else if (("linux_permission_on".equals(event)||"linux_permission_off".equals(event)) && multitask && multitaskWindow!=null) {
+                linuxPermissionDialog="linux_permission_on".equals(event);
+                if(linuxPermissionDialog){
+                    resetLinuxDirectPresentation();
+                    if(exitHoverTimer!=null)exitHoverTimer.stop();if(exitHideTimer!=null)exitHideTimer.stop();
+                    multitaskControls.setVisible(false);multitaskWindow.setVisible(false);
+                } else {
+                    multitaskWindow.setVisible(true);multitaskControls.setVisible(true);
+                    if(exitHoverTimer!=null)exitHoverTimer.start();
+                    SwingUtilities.invokeLater(()->{if(multitask)setControlTarget(activeView.controlSource);});
+                }
+            }
+            else if ("linux_shortcuts".equals(event)) {
+                updateHotkeyHints();
+                if(multitaskExitButton!=null)multitaskExitButton.setToolTipText("Exit: "+backend.linuxShortcut("toggle_multitask"));
+                if(multitaskTargetLabel!=null)multitaskTargetLabel.setToolTipText("Switch input: "+backend.linuxShortcut("quick_swap")+" · visual layers: "+backend.linuxShortcut("layer_swap"));
+            }
+            else if ("linux_input_mode".equals(event) && !multitask && !shuttingDown && isShowing()) {
+                toFront();requestFocus();
+            }
+            else if ("linux_input_mode".equals(event) && multitask && multitaskWindow!=null) {
+                boolean directed=!"native".equals(backend.linuxInputMode());
+                backendStatus.setText("Linux input: "+backend.linuxInputMode());
+                if("unavailable".equals(backend.linuxInputMode())){revealExit();multitaskTargetLabel.setText("Input unavailable for this target");multitaskTargetLabel.setVisible(true);}
+                multitaskWindow.setFocusableWindowState(directed);
+                if(directed){multitaskWindow.requestFocus();preview.requestFocusInWindow();}
+                updateLinuxDirectPresentation();
+            }
+            else if ("screenshot_full".equals(event) && multitask) captureMultitaskScreenshot(false);
             else if ("screenshot_region".equals(event) && multitask) captureMultitaskScreenshot(true);
             else if ("quick_swap".equals(event) && multitask) cycleQuickSwapTarget();
             else if ("layer_swap".equals(event) && multitask) swapVisibleLayers();
@@ -258,11 +368,20 @@ public final class MainWindow extends JFrame {
                     return true;
                 }
             }
-            if (multitask && !backend.isReady() && event.getID() == KeyEvent.KEY_PRESSED && keyBindingForEvent(event) != null && keyBindingForEvent(event).equals(swapKeyBinding)) {
+            if (multitask && app.multimin.backend.PlatformSupport.isLinux() && event.getID() == KeyEvent.KEY_PRESSED) {
+                String binding = keyBindingForEvent(event);
+                if (binding != null && binding.equals(screenshotKey)) { captureMultitaskScreenshot(false); return true; }
+                if (binding != null && binding.equals(regionScreenshotKey)) { captureMultitaskScreenshot(true); return true; }
+                if (binding != null && binding.equals(stopKeyBinding)) { setMultitask(false); return true; }
+                if (binding != null && binding.equals(layerSwapKeyBinding)) { swapVisibleLayers(); return true; }
+            }
+            if (multitask && (!backend.isReady() || app.multimin.backend.PlatformSupport.isLinux()) && event.getID() == KeyEvent.KEY_PRESSED && keyBindingForEvent(event) != null && keyBindingForEvent(event).equals(swapKeyBinding)) {
                 cycleQuickSwapTarget(); return true;
             }
             return false;
         });
+        if (app.multimin.backend.PlatformSupport.isLinux())
+            new app.multimin.backend.LinuxOverlayInput(backend, preview, () -> multitask);
         GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         for (int i = 0; i < screens.length; i++) {
             try {
@@ -480,13 +599,14 @@ public final class MainWindow extends JFrame {
     private void switchView(View view) { if (multitask) return; activeView = view; for (Map.Entry<View, AbstractButton> entry : viewButtons.entrySet()) entry.getValue().setSelected(entry.getKey() == view); viewTitle.setText(view.name); sourceList.setModel(view.sources); sourceList.setSelectedIndex(Math.min(1, view.sources.size() - 1)); preview.setView(view); }
     private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20)); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
     private void setControlTarget(int index) {
+        resetLinuxDirectPresentation();
         if (index < 0 || index >= activeView.sources.size()) return;
         activeView.controlSource = index;
         Source source = activeView.sources.get(index);
         String target = source.kind == Source.Kind.DISPLAY || source.inputTarget.isBlank() ? "desktop" : source.inputTarget;
         boolean desktopInput = source.kind == Source.Kind.DISPLAY;
         Rectangle mapped = new Rectangle(), excluded = new Rectangle();
-        if (multitask && source.usesWindowTarget()) {
+        if (multitask && (source.usesWindowTarget() || app.multimin.backend.PlatformSupport.isLinux())) {
             try { mapped = preview.sourceBoundsOnScreen(index); } catch (IllegalComponentStateException ignored) { }
         }
         if (multitaskExitButton != null && multitaskExitButton.isShowing()) {
@@ -498,8 +618,12 @@ public final class MainWindow extends JFrame {
             }
             catch (IllegalComponentStateException ignored) { }
         }
+        if(app.multimin.backend.PlatformSupport.isLinux()) {
+            var transform=preview.getGraphicsConfiguration().getDefaultTransform();
+            backend.send("{\"command\":\"linux_coordinate_scale\",\"x\":"+transform.getScaleX()+",\"y\":"+transform.getScaleY()+"}");
+        }
         backend.setInputTarget(target, source.nativeWindowHandle, mapped.x, mapped.y, mapped.width, mapped.height,
-            excluded.x, excluded.y, excluded.width, excluded.height, desktopInput);
+            excluded.x, excluded.y, excluded.width, excluded.height, desktopInput,source.captureFramePath);
         multitaskInputLabel.setText("Input target: " + source.name); updateControlIndicator(); preview.repaint();
     }
     private void refreshNativeLayerLayout() {
@@ -507,6 +631,7 @@ public final class MainWindow extends JFrame {
         // The preview owns the visual composition. Cutting out window sources
         // exposed their real HWNDs, so focusing an input target also changed
         // what was visible regardless of the source order.
+        resetLinuxDirectPresentation();
         multitaskWindow.setShape(null);
         StringBuilder items = new StringBuilder();
         java.util.Set<Long> seen = new java.util.HashSet<>();
@@ -593,9 +718,10 @@ public final class MainWindow extends JFrame {
         List<Integer> targets = new ArrayList<>();
         for (int i = 0; i < activeView.sources.size(); i++) {
             Source source = activeView.sources.get(i);
-            if (source.visible && source.quickSwapInput && (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME)) targets.add(i);
+            if (source.visible && source.quickSwapInput && (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME)
+                && (!app.multimin.backend.PlatformSupport.isLinux() || (source.liveFrame!=null && (!source.usesWindowTarget() || source.nativeWindowHandle!=0)))) targets.add(i);
         }
-        if (targets.isEmpty()) { backendStatus.setText("Enable a source’s lightning bolt to use Right Ctrl input swap"); multitaskInputLabel.setText("Input target: no quick-swap sources enabled"); return; }
+        if (targets.isEmpty()) { backendStatus.setText("Enable a live source’s input-cycle mouse icon to switch input"); multitaskInputLabel.setText("Input target: no quick-swap sources enabled"); return; }
         int current = targets.indexOf(activeView.controlSource);
         int next = targets.get((current + 1) % targets.size());
         setControlTarget(next);
@@ -637,13 +763,15 @@ public final class MainWindow extends JFrame {
         if (kind == null) return;
         boolean nativeTest = false;
         if (kind == Source.Kind.GAME) {
-            Object mode = JOptionPane.showInputDialog(this,
-                "Choose a backend. WGC captures game windows without graphics hooks.\nProtected or exclusive fullscreen games may be unsupported.\nThe controlled DX11 renderer is for testing purposes only.",
-                "Experimental game capture", JOptionPane.QUESTION_MESSAGE, null,
-                new String[]{"Game window — WGC compatibility", "Controlled DX11 renderer — testing only"},
-                "Game window — WGC compatibility");
-            if (mode == null) return;
-            nativeTest = mode.toString().startsWith("Controlled");
+            if (!app.multimin.backend.PlatformSupport.isLinux()) {
+                Object mode = JOptionPane.showInputDialog(this,
+                    "Choose a backend. WGC captures game windows without graphics hooks.\nProtected or exclusive fullscreen games may be unsupported.\nThe controlled DX11 renderer is for testing purposes only.",
+                    "Experimental game capture", JOptionPane.QUESTION_MESSAGE, null,
+                    new String[]{"Game window — WGC compatibility", "Controlled DX11 renderer — testing only"},
+                    "Game window — WGC compatibility");
+                if (mode == null) return;
+                nativeTest = mode.toString().startsWith("Controlled");
+            }
         }
         boolean windowBased = kind == Source.Kind.WINDOW || (kind == Source.Kind.GAME && !nativeTest);
         String target = "";
@@ -693,7 +821,7 @@ public final class MainWindow extends JFrame {
         source.displayDeviceIndex = selectedDisplay;
         if (source.quickSwapInput) source.controlColor = nextControlColor(source);
         if (windowBased) {
-            if (kind == Source.Kind.GAME) { source.captureMethod = "WGC"; source.quickSwapInput = true; source.controlColor = nextControlColor(source); }
+            if (kind == Source.Kind.GAME) { source.captureMethod = app.multimin.backend.PlatformSupport.isLinux() ? "AUTO" : "WGC"; source.quickSwapInput = true; source.controlColor = nextControlColor(source); }
             source.nativeWindowHandle = windowTarget.hwnd;
             source.windowProcess = windowTarget.process;
             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".bmp").toString();
@@ -721,6 +849,7 @@ public final class MainWindow extends JFrame {
 
     private String automaticWindowSourceName(PythonBridge.WindowTarget target) {
         String executable = target.process == null ? "" : target.process.trim();
+        if(executable.startsWith("kwin:"))executable=executable.substring(5);
         int slash = Math.max(executable.lastIndexOf('/'), executable.lastIndexOf('\\'));
         if (slash >= 0) executable = executable.substring(slash + 1);
         executable = executable.replaceAll("^\\[[^]]+\\]:?\\s*", "");
@@ -786,6 +915,8 @@ public final class MainWindow extends JFrame {
         preferences.putBoolean("captureFpsChoiceV2", true);
         lastAppliedCaptureFps = effectiveCaptureFps();
         windowFrameTimer.setTargetFps(backend.hasFrameNotifications() ? Math.min(30, lastAppliedCaptureFps) : lastAppliedCaptureFps);
+        if (app.multimin.backend.PlatformSupport.isLinux())
+            new app.multimin.backend.LinuxOverlayInput(backend, preview, () -> multitask);
         GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         for (int i = 0; i < displayCaptures.size(); i++) {
             int refresh = i < screens.length ? screens[i].getDisplayMode().getRefreshRate() : 0;
@@ -834,6 +965,26 @@ public final class MainWindow extends JFrame {
     }
 
     private PythonBridge.WindowTarget chooseWindowTarget() {
+        int linuxBackend=0;
+        if(app.multimin.backend.PlatformSupport.isWayland()) {
+            boolean kde=app.multimin.backend.PlatformSupport.isKde();
+            String[] choices=kde
+                ? new String[]{"KDE window (recommended)", "X11 / XWayland (compatibility)"}
+                : new String[]{"Desktop sharing", "X11 / XWayland (compatibility)"};
+            int choice=JOptionPane.showOptionDialog(this,
+                kde ? "KDE includes native Wayland and XWayland windows. Use X11 compatibility if needed."
+                    : "Desktop sharing captures native windows. X11 compatibility lists X11 / XWayland windows only.",
+                "Window capture",JOptionPane.DEFAULT_OPTION,JOptionPane.QUESTION_MESSAGE,null,choices,choices[0]);
+            if(choice<0)return null;
+            linuxBackend=choice==1?0:kde?1:2;
+        }
+        if(linuxBackend==2) {
+            String name=promptText("Share a window","Source name (the desktop picker opens next):","Window - WC");
+            if(name==null || name.isBlank())return null;
+            pendingWindowSourceName=name;pendingWindowNameManual=true;
+            return new PythonBridge.WindowTarget("portal","Desktop-selected window",0,0,0,800,600);
+        }
+        final boolean nativeWayland=linuxBackend==1;
         JDialog dialog = dialog("Select a window");
         JPanel body = dialogBody();
         JPanel heading = transparent(new GridLayout(0, 1, 0, 7));
@@ -862,9 +1013,13 @@ public final class MainWindow extends JFrame {
             backend.requestWindowList(found -> SwingUtilities.invokeLater(() -> {
                 DefaultComboBoxModel<PythonBridge.WindowTarget> model = new DefaultComboBoxModel<>();
                 for (PythonBridge.WindowTarget item : found) model.addElement(item);
-                windows.setModel(model); refresh.setEnabled(true);
-                status.setText(found.isEmpty() ? "No windows found. Check that the capture service is running." : found.size() + " windows found · choose one to capture");
-            }));
+                windows.setModel(model);
+                if(!manualName[0] && windows.getSelectedItem() instanceof PythonBridge.WindowTarget selected) {
+                    settingSuggestedName[0]=true;sourceName.setText(automaticWindowSourceName(selected));settingSuggestedName[0]=false;
+                }
+                refresh.setEnabled(true);
+                status.setText(found.isEmpty() ? "No windows found. Check that the capture service is running." : found.size() + (nativeWayland?" windows · choose the input window; KDE then asks permission to capture it":" windows found · choose one to capture"));
+            }),nativeWayland?"wayland":"x11");
         };
         refresh.addActionListener(event -> scan.run());
         JPanel row = transparent(new BorderLayout(8, 0)); row.add(windows, BorderLayout.CENTER); row.add(refresh, BorderLayout.EAST);
@@ -1051,6 +1206,12 @@ public final class MainWindow extends JFrame {
             prettyKeyBinding(layerSwapKeyBinding) + " swaps layers");
         inputKeyHint.setToolTipText("Change in Settings → Swap input keybind");
         layerKeyHint.setToolTipText("Change in Settings → Swap visual layers key");
+        if(app.multimin.backend.PlatformSupport.isWayland()) {
+            inputKeyHint.setToolTipText("X11/XWayland: "+prettyKeyBinding(swapKeyBinding)+" · native Wayland desktop binding: "+backend.linuxShortcut("quick_swap"));
+            layerKeyHint.setToolTipText("X11/XWayland: "+prettyKeyBinding(layerSwapKeyBinding)+" · native Wayland desktop binding: "+backend.linuxShortcut("layer_swap"));
+            inputKeyHint.setText("X11: "+prettyKeyBinding(swapKeyBinding)+" · Wayland: "+backend.linuxShortcut("quick_swap"));
+            layerKeyHint.setText("X11: "+prettyKeyBinding(layerSwapKeyBinding)+" · Wayland: "+backend.linuxShortcut("layer_swap"));
+        }
         inputKeyHint.revalidate(); layerKeyHint.revalidate();
     }
     private void updateRecordingButton(JButton button, String value) {
@@ -1058,6 +1219,23 @@ public final class MainWindow extends JFrame {
     }
     private void styleScrollBar(JScrollBar bar) { ModernUi.scroll(bar,palette); }
     private boolean loadImageSource() {
+        if (app.multimin.backend.PlatformSupport.isLinux()) {
+            if(!backend.isReady()){showNotice("Image source","Wait for the capture service to start.");return false;}
+            JDialog waiting=dialog("Choose an image");
+            waiting.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+            waiting.add(new JLabel("Select an image in the desktop file picker."));
+            waiting.setSize(400,120); waiting.setLocationRelativeTo(this);
+            String[] path={""};
+            backend.requestImageFile(selected->SwingUtilities.invokeLater(()->{path[0]=selected;waiting.dispose();}));
+            waiting.setVisible(true);
+            if(path[0].isBlank())return false;
+            try { pendingImage=ImageIO.read(Path.of(path[0]).toFile()); }
+            catch(Exception error){pendingImage=null;}
+            if(pendingImage==null){showNotice("Image source","That file could not be opened as an image.");return false;}
+            pendingImagePath=path[0];pendingImageName=Path.of(path[0]).getFileName().toString();
+            int extension=pendingImageName.lastIndexOf('.');if(extension>0)pendingImageName=pendingImageName.substring(0,extension);
+            return true;
+        }
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Choose an image source");
         chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("Image files", "png", "jpg", "jpeg", "bmp", "gif"));
@@ -1165,6 +1343,17 @@ public final class MainWindow extends JFrame {
     }
 
     private void configureSelectedSource() {
+        if (app.multimin.backend.PlatformSupport.isLinux()) {
+            Source source = sourceList.getSelectedValue();
+            if (source != null && source.kind == Source.Kind.DISPLAY) {
+                if (source.captureFramePath != null) backend.removeWindowCapture(source.captureFramePath);
+                source.portalRestoreToken = "";
+                source.nativeDisplayAttempted = false; source.nativeDisplayFrames = false;
+                source.liveFrame = null; source.lastMemorySequence = 0;
+                return;
+            }
+        }
+
         Source source = sourceList.getSelectedValue();
         if (source == null) return;
         if (source.usesWindowTarget()) {
@@ -1183,13 +1372,18 @@ public final class MainWindow extends JFrame {
     }
 
     private void showWindowSourceSettings(Source source) {
-        JDialog dialog = dialog(source.kind == Source.Kind.GAME ? "Configure game window — WGC compatibility" : "Configure window capture");
+        boolean linux = app.multimin.backend.PlatformSupport.isLinux();
+        JDialog dialog = dialog(source.kind == Source.Kind.GAME
+            ? linux ? "Configure game window capture" : "Configure game window — WGC compatibility"
+            : "Configure window capture");
         JPanel body = dialogBody();
         JPanel fields = settingsPage();
+        boolean kdeTarget=app.multimin.backend.PlatformSupport.isLinux() && source.windowProcess.startsWith("kwin:");
+        boolean portalTarget=app.multimin.backend.PlatformSupport.isLinux() && ("portal".equals(source.windowProcess)||kdeTarget);
         JTextField name = new JTextField(source.name); name.getAccessibleContext().setAccessibleName("Source name");
         name.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(8,10,8,10)));name.setSelectionColor(palette.accent);name.setSelectedTextColor(palette.selectionText());
         name.setForeground(palette.text); name.setBackground(palette.controlSurface()); name.setCaretColor(palette.text);
-        boolean[] manualName = {source.customName}, settingSuggestedName = {false};
+        boolean[] manualName = {source.customName || portalTarget}, settingSuggestedName = {false};
         name.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             private void changed() { if (!settingSuggestedName[0]) manualName[0] = true; }
             @Override public void insertUpdate(javax.swing.event.DocumentEvent event) { changed(); }
@@ -1206,6 +1400,11 @@ public final class MainWindow extends JFrame {
         JLabel scanStatus = muted("Scanning open windows…");
         JButton scan = toolButton("Scan again", "Refresh detected application windows");
         Runnable refresh = () -> {
+            if(portalTarget && !kdeTarget) {
+                targets.setModel(new DefaultComboBoxModel<>(new PythonBridge.WindowTarget[]{
+                    new PythonBridge.WindowTarget("portal","Desktop-selected window",0,0,0,800,600)}));
+                scan.setEnabled(false);scanStatus.setText("The desktop window picker opens after Apply changes.");return;
+            }
             scanStatus.setText("Scanning open windows…"); scan.setEnabled(false);
             backend.requestWindowList(found -> SwingUtilities.invokeLater(() -> {
                 DefaultComboBoxModel<PythonBridge.WindowTarget> model = new DefaultComboBoxModel<>();
@@ -1213,30 +1412,38 @@ public final class MainWindow extends JFrame {
                 targets.setModel(model);
                 for (int i = 0; i < model.getSize(); i++) if (model.getElementAt(i).hwnd == source.nativeWindowHandle) targets.setSelectedIndex(i);
                 scan.setEnabled(true); scanStatus.setText(found.size() + " windows found");
-            }));
+            }),kdeTarget?"wayland":"x11");
         };
         scan.addActionListener(event -> refresh.run());
         fields.add(propertyLabel("Source name")); fields.add(name);
         fields.add(propertyLabel("Capture target")); JPanel targetRow = transparent(new BorderLayout(6, 0)); targetRow.add(targets); targetRow.add(scan, BorderLayout.EAST); fields.add(targetRow); fields.add(scanStatus);
         JCheckBox captureCursor = new JCheckBox("Capture cursor in this source", source.captureCursor); captureCursor.setOpaque(false); captureCursor.setForeground(palette.text); captureCursor.setIcon(new AccentCheckIcon(palette)); fields.add(captureCursor);
-        JCheckBox nativePresentation=new JCheckBox("Native window presentation in multitask mode",source.nativePresentationEnabled);
+        JCheckBox nativePresentation=new JCheckBox(linux?"Native presentation when this is the only visible window":"Native window presentation in multitask mode",source.nativePresentationEnabled);
         nativePresentation.setOpaque(false);nativePresentation.setForeground(palette.text);nativePresentation.setIcon(new AccentCheckIcon(palette));
         fields.add(nativePresentation);
+        if(app.multimin.backend.PlatformSupport.isLinux() && !portalTarget) captureCursor.setEnabled(false);
         fields.add(propertyLabel("Capture method"));
-        JComboBox<String> method = new JComboBox<>(new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
-        method.getAccessibleContext().setAccessibleName("Capture method"); styleCombo(method); method.setSelectedIndex("WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
-        if (source.kind == Source.Kind.GAME) { fields.remove(method); JLabel nativeMethod=new JLabel("Windows Graphics Capture · WGC compatibility");nativeMethod.setOpaque(true);nativeMethod.setBackground(palette.controlSurface());nativeMethod.setForeground(palette.text);nativeMethod.setBorder(new EmptyBorder(10,10,10,10));fields.add(nativeMethod); }
-        JLabel methodHint = muted(source.kind == Source.Kind.GAME ? "WGC captures the selected game window; graphics API hooks are not active." : "Automatic tries WGC, then compatibility capture."); fields.add(methodHint);
+        JComboBox<String> method = new JComboBox<>(app.multimin.backend.PlatformSupport.isLinux() ? new String[]{portalTarget?"Desktop sharing portal":"X11 compositor drawable"} : new String[]{"Automatic (recommended)", "Window surface (may work when covered)", "Visible desktop (window must be unobstructed)"});
+        method.getAccessibleContext().setAccessibleName("Capture method"); styleCombo(method); method.setSelectedIndex(app.multimin.backend.PlatformSupport.isLinux()?0:"WINDOW".equals(source.captureMethod) ? 1 : "SCREEN".equals(source.captureMethod) ? 2 : 0); fields.add(method);
+        if (source.kind == Source.Kind.GAME && !linux) { fields.remove(method); JLabel nativeMethod=new JLabel("Windows Graphics Capture · WGC compatibility");nativeMethod.setOpaque(true);nativeMethod.setBackground(palette.controlSurface());nativeMethod.setForeground(palette.text);nativeMethod.setBorder(new EmptyBorder(10,10,10,10));fields.add(nativeMethod); }
+        JLabel methodHint = muted(linux
+            ? source.kind == Source.Kind.GAME
+                ? (portalTarget
+                    ? "Best-effort capture through desktop window sharing. Protected or exclusive-fullscreen games may not work; game input support varies."
+                    : "Best-effort X11 window capture. Protected or exclusive-fullscreen games may not work; game input support varies.")
+                : "Capture uses the Linux backend; native Windows presentation is unavailable."
+            : source.kind == Source.Kind.GAME ? "WGC captures the selected game window; graphics API hooks are not active." : "Automatic tries WGC, then compatibility capture."); fields.add(methodHint);
         body.add(fields, BorderLayout.CENTER);
         JButton cancel = toolButton("Cancel", "Discard changes"); cancel.addActionListener(event -> dialog.dispose());
         JButton save = primaryButton("Apply changes"); save.addActionListener(event -> {
             PythonBridge.WindowTarget target = (PythonBridge.WindowTarget) targets.getSelectedItem();
             if (target == null || name.getText().trim().isEmpty()) { showNotice("Window capture", "Choose a detected window and enter a source name."); return; }
-            source.name = uniqueSourceName(name.getText().trim(), source); source.customName = manualName[0]; source.inputTarget = target.title; source.nativeWindowHandle = target.hwnd; source.windowProcess = target.process;
-            source.captureMethod = source.kind == Source.Kind.GAME ? "WGC" : method.getSelectedIndex() == 1 ? "WINDOW" : method.getSelectedIndex() == 2 ? "SCREEN" : "AUTO";
+            source.name = uniqueSourceName(name.getText().trim(), source); source.customName = manualName[0]; source.inputTarget = target.title; source.nativeWindowHandle = target.hwnd; source.windowProcess = target.process; source.portalRestoreToken = "";
+            source.captureMethod = source.kind == Source.Kind.GAME && !linux ? "WGC" : method.getSelectedIndex() == 1 ? "WINDOW" : method.getSelectedIndex() == 2 ? "SCREEN" : "AUTO";
             source.captureCursor = captureCursor.isSelected();
             source.nativePresentationEnabled=nativePresentation.isSelected();
             source.liveFrame = null; source.lastCaptureModified = 0;
+            if(source.captureFramePath==null) source.captureFramePath=windowFramesDirectory.resolve(java.util.UUID.randomUUID()+".bmp").toString();
             backend.registerWindowCapture(source.name, source.inputTarget, source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
             sourceList.repaint(); syncSelection(); preview.repaint(); dialog.dispose();
         });
@@ -1256,6 +1463,21 @@ public final class MainWindow extends JFrame {
             showNotice("Multitask input unavailable", "The Python input service has not started. Check the status bar and restart MultiMin from this build.");
             return;
         }
+        if(enabled && !multitask && app.multimin.backend.PlatformSupport.isLinux()) {
+            for(int i=0;i<activeView.sources.size();i++) {
+                Source source=activeView.sources.get(i);
+                if(source.visible && source.quickSwapInput && (source.usesWindowTarget() || source.kind==Source.Kind.DISPLAY) && source.liveFrame==null) {
+                    showNotice("Capture not ready","Wait for this source's first captured frame, or disable its input-cycle icon: "+source.name);return;
+                }
+            }
+        }
+        if (app.multimin.backend.PlatformSupport.isLinux()) {
+            for(View view:views)for(int i=0;i<view.sources.size();i++){
+                Source source=view.sources.get(i);
+                source.inputReferenceWidth=enabled && source.liveFrame!=null?source.liveFrame.getWidth():0;
+                source.inputReferenceHeight=enabled && source.liveFrame!=null?source.liveFrame.getHeight():0;
+            }
+        }
         if (multitask == enabled) return; multitask = enabled; GraphicsDevice device = getGraphicsConfiguration().getDevice();
         preview.setLocked(enabled);
         if (enabled) {
@@ -1266,14 +1488,26 @@ public final class MainWindow extends JFrame {
             }
             preview.setLocked(true);
             multitaskWindow = new JWindow();
+            if(app.multimin.backend.PlatformSupport.isLinux()) multitaskWindow.setType(Window.Type.POPUP);
             multitaskWindow.setFocusableWindowState(false);
             multitaskWindow.setAlwaysOnTop(true);
-            multitaskWindow.setBackground(new Color(0, 0, 0, 0));
+            // Avoid the per-pixel translucent XWayland update path when
+            // the composition already paints an opaque black background.
+            multitaskWindow.setBackground(app.multimin.backend.PlatformSupport.isLinux() && !preview.needsTransparentOverlay()
+                ? Color.BLACK : new Color(0, 0, 0, 0));
             multitaskWindow.setContentPane(preview);
             Rectangle screenBounds = device.getDefaultConfiguration().getBounds();
             multitaskWindow.setBounds(screenBounds);
             multitaskWindow.setVisible(true);
+            if(app.multimin.backend.PlatformSupport.isLinux()) {
+                long xid=app.multimin.backend.LinuxWindowIdentity.get(multitaskWindow);
+                backend.send("{\"command\":\"linux_overlay_window\",\"xid\":"+xid+"}");
+            }
+            if (app.multimin.backend.PlatformSupport.isLinux() && multitaskWindow != null && !"native".equals(backend.linuxInputMode())) {
+                multitaskWindow.setFocusableWindowState(true);multitaskWindow.requestFocus(); preview.setFocusable(true); preview.requestFocusInWindow();
+            }
             multitaskControls = new JWindow();
+            if(app.multimin.backend.PlatformSupport.isLinux()) multitaskControls.setType(Window.Type.POPUP);
             multitaskControls.setFocusableWindowState(false);
             multitaskControls.setAlwaysOnTop(true);
             multitaskControls.setBackground(new Color(0, 0, 0, 0));
@@ -1300,6 +1534,10 @@ public final class MainWindow extends JFrame {
             inputNoticeTimer = new javax.swing.Timer(1000, event -> multitaskTargetLabel.setVisible(false));
             inputNoticeTimer.setRepeats(false);
             multitaskControls.setVisible(true);
+            if(app.multimin.backend.PlatformSupport.isLinux()) {
+                long controlXid=app.multimin.backend.LinuxWindowIdentity.get(multitaskControls);
+                backend.send("{\"command\":\"linux_overlay_controls\",\"xid\":"+controlXid+"}");
+            }
             Point exitPoint=exitOverlay.getLocationOnScreen();exitHotspot=new Rectangle(exitPoint.x,exitPoint.y,38,38);
             exitHideTimer=new javax.swing.Timer(2600,event->{if(exitHotspot!=null&&MouseInfo.getPointerInfo()!=null&&exitHotspot.contains(MouseInfo.getPointerInfo().getLocation()))return;multitaskControls.setVisible(false);overlayControlRegion(false);});exitHideTimer.setRepeats(false);
             exitHoverTimer=new javax.swing.Timer(100,event->{if(exitHotspot!=null&&MouseInfo.getPointerInfo()!=null&&exitHotspot.contains(MouseInfo.getPointerInfo().getLocation()))revealExit();});exitHoverTimer.start();updateControlIndicator();revealExit();overlayControlRegion(true);
@@ -1308,6 +1546,8 @@ public final class MainWindow extends JFrame {
             configureScreenshotKeys();backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
             SwingUtilities.invokeLater(() -> { refreshNativeLayerLayout(); setControlTarget(activeView.controlSource); });
         } else {
+            resetLinuxDirectPresentation();
+            linuxPermissionDialog=false;
             if(screenshotSelection!=null)screenshotSelection.dispose();
             if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();exitHotspot=null;
             backend.setMultitaskOverlay(false, false, stopKeyBinding);
@@ -1330,26 +1570,36 @@ public final class MainWindow extends JFrame {
             for (int i = 0; i < activeView.sources.size(); i++) {
                 Source source = activeView.sources.get(i);
                 if (preview.isSourceRendered(i) && source.kind == Source.Kind.DISPLAY && source.displayDeviceIndex == device) {
-                    if (displayCaptures.size() == 1 && device == 0 && !source.nativeDisplayAttempted && backend.isReady()) {
+                    if ((app.multimin.backend.PlatformSupport.isLinux() || (displayCaptures.size() == 1 && device == 0)) && !source.nativeDisplayAttempted && backend.isReady()) {
                         source.nativeDisplayAttempted = true;
-                        if (PythonBridge.prepareNativeDisplayCapture()) {
+                        if (app.multimin.backend.PlatformSupport.isLinux() || PythonBridge.prepareNativeDisplayCapture()) {
                             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".monitor").toString();
-                            backend.send("{\"command\":\"register_display_capture\",\"monitor\":1,\"path\":\"" + source.captureFramePath.replace("\\", "\\\\") + "\"}");
+                            backend.send("{\"command\":\"register_display_capture\",\"monitor\":" + (device+1) + ",\"path\":\"" + source.captureFramePath.replace("\\", "\\\\") + "\",\"restore_token\":\"" + source.portalRestoreToken.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}");
                         }
                     }
                     if (!source.nativeDisplayFrames) needed = true;
                 }
             }
-            displayCaptures.get(device).setEnabled(needed);
+            displayCaptures.get(device).setEnabled(needed && !app.multimin.backend.PlatformSupport.isLinux());
         }
     }
 
     private void refreshWindowFrames() {
+        updateLinuxDirectPresentation();
+        if(multitask && app.multimin.backend.PlatformSupport.isLinux() && System.nanoTime()-lastInputCheck>250_000_000L) {
+            lastInputCheck=System.nanoTime();backend.send("{\"command\":\"linux_check_input\"}");
+        }
         preview.refreshNativePresentation();
         if(multitask && multitaskExitButton!=null) {
             boolean nativeSurfaces=false;
             for(int i=0;i<activeView.sources.size();i++)nativeSurfaces|=activeView.sources.get(i).nativeCompositionActive;
-            multitaskExitButton.setToolTipText("Exit multitask mode · "+(nativeSurfaces?"Native window composition":"Capture preview"));
+            nativeSurfaces|=preview.hasLinuxDirectSource();
+            String exitKey=prettyKeyBinding(stopKeyBinding);
+            if(app.multimin.backend.PlatformSupport.isWayland() && activeView.controlSource>=0 && activeView.controlSource<activeView.sources.size()) {
+                Source controlled=activeView.sources.get(activeView.controlSource);
+                if(controlled.kind==Source.Kind.DISPLAY || controlled.windowProcess.startsWith("kwin:")) exitKey=backend.linuxShortcut("toggle_multitask");
+            }
+            multitaskExitButton.setToolTipText("Exit multitask mode · "+exitKey+" · "+(nativeSurfaces?"Native window composition":"Capture preview"));
         }
         refreshDisplayCaptureActivity();
         List<Source> sources = new ArrayList<>();
@@ -1379,20 +1629,24 @@ public final class MainWindow extends JFrame {
         windowFrameWorker.execute(() -> {
             Map<Source, WindowFrameReader.Frame> frames = new HashMap<>();
             Map<Source, long[]> versions = new HashMap<>();
+            Map<Source,String> identifiers=new HashMap<>();
             for (Source source : sources) {
+                String framePath=source.captureFramePath;
+                if(framePath==null)continue;
+                identifiers.put(source,framePath);
                 try {
                     WindowFrameReader.Frame frame = null;
-                    try { frame = windowFrameReader.readMemory(source.captureFramePath, source.lastMemorySequence,
+                    try { frame = windowFrameReader.readMemory(framePath, source.lastMemorySequence,
                         backend.frameStreamPort(), source.standbyFrame); }
                     catch (java.io.IOException ignored) { }
                     if (frame != null) {
                         frames.put(source, frame); continue;
                     }
-                    Path path = Path.of(source.captureFramePath);
+                    Path path = Path.of(framePath);
                     if (!Files.isRegularFile(path)) continue;
                     long modified = Files.getLastModifiedTime(path).toMillis(), size = Files.size(path);
                     if (modified == source.lastCaptureModified && size == source.lastCaptureSize) continue;
-                    frame = windowFrameReader.readDisk(source.captureFramePath, source.lastCaptureModified, source.lastCaptureSize);
+                    frame = windowFrameReader.readDisk(framePath, source.lastCaptureModified, source.lastCaptureSize);
                     if (frame != null) { frames.put(source, frame); versions.put(source, new long[]{modified, size}); }
                 } catch (Exception ignored) { }
             }
@@ -1400,6 +1654,7 @@ public final class MainWindow extends JFrame {
                 try {
                     for (Map.Entry<Source, WindowFrameReader.Frame> entry : frames.entrySet()) {
                         Source source = entry.getKey();
+                        if(!java.util.Objects.equals(identifiers.get(source),source.captureFramePath))continue;
                         WindowFrameReader.Frame frame = entry.getValue();
                         long[] version = versions.get(source);
                         if (frame.backend.contains("memory")) {
@@ -1415,11 +1670,14 @@ public final class MainWindow extends JFrame {
                         source.standbyFrame = frame.backend.contains("memory") ? previous : null;
                         source.activeCaptureBackend = source.nativeGameTest
                             ? "DirectX 11 test capture · CPU transfer" : source.kind == Source.Kind.GAME
-                            ? "WGC game-window compatibility · " + (frame.backend.contains("shared") ? "shared memory" : "socket memory") : frame.backend;
+                            ? app.multimin.backend.PlatformSupport.isLinux()
+                                ? "Linux game-window capture · " + frame.backend
+                                : "WGC game-window compatibility · " + (frame.backend.contains("shared") ? "shared memory" : "socket memory") : frame.backend;
+                        if(source==linuxDirectSource)source.activeCaptureBackend="Native Linux window presentation · capture retained for screenshots";
                         source.captureLatencyMillis = frame.latencyMillis; source.capturedFrames++;
                         source.producedNanos = frame.producedNanos;
                     }
-                    if (!frames.isEmpty()) preview.repaint();
+                    if (!frames.isEmpty() && !preview.hasLinuxDirectSource()) preview.repaint();
                 } finally {
                     windowFrameScanQueued.set(false);
                     if (newFramePending.get()) requestWindowFrames();
@@ -1429,6 +1687,7 @@ public final class MainWindow extends JFrame {
     }
 
     private synchronized void shutdownServices() {
+        resetLinuxDirectPresentation();
         if(sidebarWidthSaveTimer!=null)sidebarWidthSaveTimer.stop();saveSidebarWidths();
         shuttingDown=true;if(screenshotSelection!=null)screenshotSelection.dispose();if(multitask){backend.setMultitaskOverlay(false,false,stopKeyBinding);multitask=false;}if(multitaskControls!=null)multitaskControls.dispose();if(multitaskWindow!=null)multitaskWindow.dispose();backend.setSnapshotHandler(ignored -> {});
         if(exitHideTimer!=null)exitHideTimer.stop();if(exitHoverTimer!=null)exitHoverTimer.stop();if(snapshotTimeout!=null)snapshotTimeout.stop();if(gallery!=null)gallery.dispose();
@@ -1469,12 +1728,19 @@ public final class MainWindow extends JFrame {
                 for(View view:views) for(int i=0;i<view.sources.size();i++) {
                     Source source=view.sources.get(i);
                     if(!source.usesWindowTarget() || source.captureFramePath!=null) continue;
-                    if (source.kind==Source.Kind.GAME && !Boolean.getBoolean("multimin.dev.gameCapture")) { source.activeCaptureBackend="Experimental source unavailable in this build";continue; }
+                    if(app.multimin.backend.PlatformSupport.isLinux() && "portal".equals(source.windowProcess)){
+                        // A saved portal grant can reconnect without the picker; without one, wait for the user.
+                        if(source.portalRestoreToken.isBlank()){source.activeCaptureBackend="Reselect source in desktop picker";continue;}
+                        source.captureFramePath=windowFramesDirectory.resolve(java.util.UUID.randomUUID()+".bmp").toString();
+                        backend.registerWindowCapture(source.name,source.inputTarget,source.captureFramePath,0,source.captureMethod,source.captureCursor,source.portalRestoreToken);
+                        continue;
+                    }
+                    if (source.kind==Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isLinux() && !Boolean.getBoolean("multimin.dev.gameCapture")) { source.activeCaptureBackend="Experimental source unavailable in this build";continue; }
                     var matches=targets.stream().filter(t -> t.title.equals(source.inputTarget) && !source.windowProcess.isBlank() && source.windowProcess.equalsIgnoreCase(t.process)).toList();
                     if(matches.size()!=1){source.activeCaptureBackend="Reselect target: window missing or ambiguous";continue;}
                     source.nativeWindowHandle=matches.get(0).hwnd;
                     source.captureFramePath=windowFramesDirectory.resolve(java.util.UUID.randomUUID()+".bmp").toString();
-                    backend.registerWindowCapture(source.name,source.inputTarget,source.captureFramePath,source.nativeWindowHandle,source.captureMethod,source.captureCursor);
+                    backend.registerWindowCapture(source.name,source.inputTarget,source.captureFramePath,source.nativeWindowHandle,source.captureMethod,source.captureCursor,source.portalRestoreToken);
                 }
                 preview.repaint();
             }));
@@ -1497,7 +1763,7 @@ public final class MainWindow extends JFrame {
 
     private Source.Kind chooseSourceKind() {
         JDialog dialog = dialog("Add source"); JPanel body = dialogBody(); body.add(new JLabel("Choose a source type"), BorderLayout.NORTH); JPanel choices = transparent(new GridLayout(0, 1, 0, 6)); final Source.Kind[] result = {null};
-        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || (kind == Source.Kind.GAME && !Boolean.getBoolean("multimin.dev.gameCapture"))) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
+        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || (kind == Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isLinux() && !Boolean.getBoolean("multimin.dev.gameCapture"))) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
         body.add(choices, BorderLayout.CENTER); JButton cancel = toolButton("Cancel", "Close"); cancel.addActionListener(event -> dialog.dispose()); JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT)); actions.add(cancel); body.add(actions, BorderLayout.SOUTH);
         dialog.setContentPane(body); dialog.setSize(360, 320); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
     }

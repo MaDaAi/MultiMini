@@ -12,7 +12,8 @@ RETENTION_SECONDS = 7 * 24 * 60 * 60
 
 class SnapshotStore:
     def __init__(self, directory: Path | None = None) -> None:
-        self.directory = directory or Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share"))) / "MultiMin" / "screenshots"
+        base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else os.environ.get("XDG_DATA_HOME")
+        self.directory = directory or Path(base or str(Path.home() / ".local" / "share")) / "MultiMin" / "screenshots"
         self.directory.mkdir(parents=True, exist_ok=True)
         if directory is None:
             legacy = Path(tempfile.gettempdir()) / "multimin" / "snapshots"
@@ -41,7 +42,7 @@ class SnapshotStore:
                 msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
             else:
                 import fcntl
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                fcntl.lockf(lock.fileno(), fcntl.LOCK_EX)
             try:
                 yield
             finally:
@@ -49,7 +50,7 @@ class SnapshotStore:
                 if os.name == "nt":
                     msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                    fcntl.lockf(lock.fileno(), fcntl.LOCK_UN)
 
     def capture_temporary(self) -> Path:
         output = self.directory / f"snapshot-{time.time_ns()}-{uuid.uuid4().hex[:8]}.png"

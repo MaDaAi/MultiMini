@@ -40,6 +40,22 @@ public final class PreviewPanel extends JPanel {
         return best;
     }
     private boolean locked;
+    private Source linuxDirectSource;
+    void setLinuxDirectSource(Source source) { linuxDirectSource=source; repaint(); }
+    boolean hasLinuxDirectSource() { return linuxDirectSource!=null; }
+    static Source linuxDirectCandidate(View view) {
+        Source only=null;
+        for(int i=0;i<view.sources.size();i++) {
+            Source source=view.sources.get(i);
+            if(!source.visible)continue;
+            if(only!=null)return null;
+            only=source;
+        }
+        if(only==null || !only.usesWindowTarget() || !only.nativePresentationEnabled || only.opacity!=100
+            || only.nativeWindowHandle==0 || only.liveFrame==null || view.controlSource<0
+            || view.controlSource>=view.sources.size() || view.sources.get(view.controlSource)!=only)return null;
+        return only;
+    }
     private boolean nativePresentationAllowed = true;
     public void setNativePresentationAllowed(boolean allowed) {
         if(nativePresentationAllowed!=allowed){nativePresentationAllowed=allowed;windowSurfaces.reset();repaint();}
@@ -101,7 +117,7 @@ public final class PreviewPanel extends JPanel {
     public double getMeasuredFps() { return measuredFps; }
     public double getLastPaintMillis() { return lastPaintMillis; }
     public int getAcceleratedSourceCount() { return frameTextures.countAcceleratedSources(); }
-    @Override public void removeNotify() { guideTimer.stop();guideX=guideY=snapX=snapY=-1; windowSurfaces.close(); frameTextures.close(); super.removeNotify(); }
+    @Override public void removeNotify() { guideTimer.stop();guideX=guideY=snapX=snapY=-1; if(linuxOverlayFrame!=null){linuxOverlayFrame.flush();linuxOverlayFrame=null;} windowSurfaces.close(); frameTextures.close(); super.removeNotify(); }
     public void setLocked(boolean locked) { if(!locked)windowSurfaces.reset(); this.locked = locked; setOpaque(!locked); dragStart = null; resizing = false; setCursor(Cursor.getDefaultCursor()); repaint(); }
     public void refreshNativePresentation() {
         if(!locked || !nativePresentationAllowed)return;
@@ -120,8 +136,8 @@ public final class PreviewPanel extends JPanel {
     public void onSourceChanged(Runnable listener) { changeListener = listener == null ? () -> {} : listener; }
 
     private Rectangle boundsFor(Source source) {
-        int sourceWidth=source.nativeSourceWidth>0?source.nativeSourceWidth:source.liveFrame==null?0:source.liveFrame.getWidth();
-        int sourceHeight=source.nativeSourceHeight>0?source.nativeSourceHeight:source.liveFrame==null?0:source.liveFrame.getHeight();
+        int sourceWidth=locked && source.inputReferenceWidth>0?source.inputReferenceWidth:source.nativeSourceWidth>0?source.nativeSourceWidth:source.liveFrame==null?0:source.liveFrame.getWidth();
+        int sourceHeight=locked && source.inputReferenceHeight>0?source.inputReferenceHeight:source.nativeSourceHeight>0?source.nativeSourceHeight:source.liveFrame==null?0:source.liveFrame.getHeight();
         double aspect = sourceHeight==0 ? 16.0/9.0 : (double)sourceWidth/sourceHeight;
         int fitWidth = canvas.width, fitHeight = canvas.height;
         if ((source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME) && sourceWidth>0 && sourceHeight>0) {
@@ -261,7 +277,40 @@ public final class PreviewPanel extends JPanel {
         repaint();
     }
 
+    private java.awt.image.BufferedImage linuxOverlayFrame;
+
     @Override protected void paintComponent(Graphics graphics) {
+        if (!locked || !app.multimin.backend.PlatformSupport.isLinux() || !needsTransparentOverlay() || getWidth() <= 0 || getHeight() <= 0) {
+            paintComposition(graphics);
+            return;
+        }
+        // XWayland can present between the clear and individual layer draws
+        // of a transparent popup. Build a complete frame in a stable raster,
+        // including its alpha, then replace the visible pixels in one draw.
+        var transform = ((Graphics2D) graphics).getTransform();
+        double sx = Math.abs(transform.getScaleX()), sy = Math.abs(transform.getScaleY());
+        int width = Math.max(1, (int)Math.ceil(getWidth() * sx));
+        int height = Math.max(1, (int)Math.ceil(getHeight() * sy));
+        if (linuxOverlayFrame == null || linuxOverlayFrame.getWidth() != width || linuxOverlayFrame.getHeight() != height) {
+            if (linuxOverlayFrame != null) linuxOverlayFrame.flush();
+            linuxOverlayFrame = new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB_PRE);
+        }
+        Graphics2D frame = linuxOverlayFrame.createGraphics();
+        try {
+            frame.setComposite(AlphaComposite.Clear);
+            frame.fillRect(0, 0, width, height);
+            frame.setComposite(AlphaComposite.SrcOver);
+            frame.scale(sx, sy);
+            paintComposition(frame);
+        } finally { frame.dispose(); }
+        Graphics2D destination = (Graphics2D) graphics.create();
+        try {
+            destination.setComposite(AlphaComposite.Src);
+            destination.drawImage(linuxOverlayFrame, 0, 0, getWidth(), getHeight(), null);
+        } finally { destination.dispose(); }
+    }
+
+    private void paintComposition(Graphics graphics) {
         long paintStarted = System.nanoTime();
         frameTextures.retain(view.sources);
         if (!locked) setBackground(palette.background);
@@ -315,7 +364,9 @@ public final class PreviewPanel extends JPanel {
     }
 
     private void paintSource(Graphics2D g, Source source, Rectangle bounds, int index) {
-        if(source.nativeCompositionActive){frameTextures.release(source);return;}
+        if(source.nativeCompositionActive || (source==linuxDirectSource && !isPaintingForPrint())) {
+            frameTextures.release(source);return;
+        }
         float alpha = Math.max(0.05f, source.opacity / 100f);
         g.setComposite(AlphaComposite.SrcOver.derive(alpha));
         Color fill;
@@ -342,7 +393,8 @@ public final class PreviewPanel extends JPanel {
                 ? RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
                 : !locked ? RenderingHints.VALUE_INTERPOLATION_BICUBIC : RenderingHints.VALUE_INTERPOLATION_BILINEAR);
             Image scaled = !nativePixels && !locked ? frameTextures.scaledImage(source,pw,ph) : null;
-            pixels.drawImage(scaled != null ? scaled : frameTextures.imageFor(source, getGraphicsConfiguration()), px, py, pw, ph, null);
+            pixels.drawImage(scaled != null ? scaled : locked && app.multimin.backend.PlatformSupport.isLinux()
+                ? source.liveFrame : frameTextures.imageFor(source, getGraphicsConfiguration()), px, py, pw, ph, null);
             pixels.dispose();
         } else if (source.kind == Source.Kind.DISPLAY) {
             if (source.liveFrame != null) {
@@ -370,6 +422,9 @@ public final class PreviewPanel extends JPanel {
             for (int[] point : points) { g.fillOval(point[0] - size / 2, point[1] - size / 2, size, size); }
         }
     }
+
+    /** Window/image-only compositions already paint a solid background. */
+    public boolean needsTransparentOverlay() { return hasVisibleDisplaySource(); }
 
     private boolean hasVisibleDisplaySource() {
         for (int index = 0; index < view.sources.size(); index++) {

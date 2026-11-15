@@ -15,6 +15,12 @@ final class GithubUpdater {
     static void checkOnLaunch(JFrame owner,Runnable save,Runnable exit){if(Boolean.getBoolean("multimin.publicUpdates"))check(owner,save,exit,true);}
     static void show(JFrame owner,Runnable save,Runnable exit){check(owner,save,exit,false);}
     private static void check(JFrame owner, Runnable save, Runnable exit, boolean startup) {
+        if (app.multimin.backend.PlatformSupport.isLinux()) {
+            if (!startup) message(owner, System.getenv("FLATPAK_ID") != null
+                ? "Flatpak manages updates. Use your software center or: flatpak update io.github.MaDaAi.MultiMini\nLocal test bundles require a newer bundle; no public repository is configured."
+                : "Rebuild the Linux app from source, or install a newer MultiMini Flatpak bundle.");
+            return;
+        }
         if (busy && startup)return;
         if (busy) { message(owner,"An update operation is already in progress."); return; }
         Path install;

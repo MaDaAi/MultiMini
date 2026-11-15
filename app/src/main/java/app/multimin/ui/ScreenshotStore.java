@@ -15,7 +15,7 @@ final class ScreenshotStore {
         String shortTime(long now){if(kept)return "Kept";long m=remaining(now)/60000;return m>=1440?(m/1440)+"D":m>=60?(m/60)+"h":m>0?m+"m":"<1m";}
         String time(long now){if(kept)return "Kept · no automatic deletion";long m=remaining(now)/60000;if(m==0)return "Deletes in less than one minute";return "Deletes in "+(m>=1440?(m/1440)+" days, ":"")+(m>=60?((m/60)%24)+" hours, ":"")+(m%60)+" minutes";}
     }
-    ScreenshotStore(){this(Path.of(System.getenv().getOrDefault("LOCALAPPDATA",Path.of(System.getProperty("user.home"),".local","share").toString()),"MultiMin","screenshots"));}
+    ScreenshotStore(){this(app.multimin.backend.PlatformSupport.screenshotDirectory());}
     ScreenshotStore(Path directory){this.directory=directory.toAbsolutePath().normalize();}
     private interface Operation<T>{T run() throws IOException;}
     private static final Object MUTEX=new Object();
