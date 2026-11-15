@@ -8,8 +8,9 @@ Publication still needs an explicit request from the publisher.
 - `main` is the only long-lived branch. Windows, Linux and (later) macOS build
   from the **same commit**. Do not keep per-OS branches: they force someone to
   copy every UI, settings or model change by hand, and they drift.
-- Feature work uses short-lived branches (`codex/…`, `claude/…`) merged into
-  `main` after review. A platform port is one of those branches, not a fork.
+- `dev` is the working branch. Larger features can use short-lived branches
+  (for example `feature/…`) merged into `dev`; `dev` is merged into `main` for
+  each release. A platform port is a feature, not a fork.
 - `VERSION` is the single app version. `scripts/package-windows.ps1`,
   `scripts/stage-linux.py`/`package-linux.sh` and a future macOS packager all
   read it. Bump it once per release.

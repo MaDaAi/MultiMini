@@ -1,8 +1,8 @@
 # Linux verification — 2026-11-14
 
-Local `codex/linux-flatpak` work in the user-selected MultiMini-main tree.
-No push, merge, GitHub release or Flathub submission occurred. Windows and Linux
-remain in one repository with shared UI/models/settings and a shared VERSION.
+Linux port verification log. Windows and Linux remain in one repository with
+shared UI/models/settings and a shared VERSION. Entries below record what was
+actually run and where; later releases are listed in docs/RELEASE_V*.md.
 Implementation is original project code using documented platform APIs;
 existing licensed Java/Python/desktop dependencies are retained.
 
@@ -159,7 +159,7 @@ PYTHONPATH=python python/.venv/bin/python scripts/check-linux-kde-routing.py --m
 Use the local installed app with `flatpak run io.github.MaDaAi.MultiMini`.
 See LINUX.md for exact build/install/update commands and platform boundaries.
 
-## 2026-11-14 Claude session (on Windows; no Linux run yet)
+## 2026-11-14 follow-up (worked on Windows; no Linux run yet)
 
 Changes made from Windows. They have unit tests here but have **not** run on Linux:
 

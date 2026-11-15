@@ -1,10 +1,9 @@
-# MultiMini shared Windows/Linux agent guide
+# MultiMini contributor guide (Windows, Linux, macOS)
 
-This checkout is the user-selected `MultiMini-main` source export, reattached to
-`https://github.com/MaDaAi/MultiMini` on local branch `codex/linux-flatpak`.
-Do not use the sibling `MultiMini` directory. Inspect status and preserve local
-changes. Do not reset, clean, merge, push or publish without explicit instruction.
-The parent folder's longer AGENTS.md remains applicable in this local workspace.
+Repository: https://github.com/MaDaAi/MultiMini. `main` holds released code;
+day-to-day work happens on `dev` and is merged into `main` for each release
+(see docs/RELEASES.md). Inspect status and preserve local changes. Do not reset,
+clean, force-push, merge to `main` or publish without the maintainer's approval.
 
 ## Linux status
 

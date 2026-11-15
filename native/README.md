@@ -9,7 +9,7 @@ This is **not** a third-party game hook. It captures only an application that ca
 Install Visual Studio Build Tools (2022 or 2026), including the **Desktop development with C++** workload, **MSVC x64/x86 build tools**, and a **Windows 10 or 11 SDK**. Open **x64 Developer PowerShell for Visual Studio** and run:
 
 ```powershell
-cd C:\Users\manso\Documents\ChatGPT\MultiMini
+cd path\to\MultiMini
 powershell -ExecutionPolicy Bypass -File scripts\build-native.ps1
 powershell -ExecutionPolicy Bypass -File scripts\run.ps1 -DevelopmentGameCapture
 ```

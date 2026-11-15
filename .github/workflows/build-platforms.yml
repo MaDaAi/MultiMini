@@ -2,7 +2,7 @@ name: Check shared Windows, Linux and macOS source
 on:
   workflow_dispatch:
   push:
-    branches: ['codex/linux-flatpak']
+    branches: [main, dev]
   pull_request:
     branches: [main]
 permissions:
