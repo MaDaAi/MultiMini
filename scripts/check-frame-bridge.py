@@ -10,7 +10,7 @@ stream = FrameStream()
 try:
     stream.publish('small', 1, 1, bytes((23, 45, 67, 128)))
     stream.publish('large', 127, 71, bytes((23, 45, 67, 128)) * (127 * 71))
-    for shared in ((True, False) if sys.platform == "win32" else (False,)):
+    for shared in (True, False):
         subprocess.run(['java', '--enable-native-access=ALL-UNNAMED',
                         '-Dmultimin.disableSharedFrames=' + str(not shared).lower(),
                         '-cp', os.pathsep.join((classes,jar)), 'FrameBridgeCheck', str(stream.port), str(shared).lower()], check=True)

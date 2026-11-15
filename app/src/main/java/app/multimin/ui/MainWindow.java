@@ -197,7 +197,11 @@ public final class MainWindow extends JFrame {
         linuxDirectSource=null;linuxDirectHole=null;preview.setLinuxDirectSource(null);
     }
     private void updateLinuxDirectPresentation() {
+        // Off by default: on KDE/XWayland the overlay hole showed black instead of the
+        // real window for single-source game capture. Capture composition is used
+        // instead. Opt in with -Dmultimin.linuxDirectPresentation=true for testing.
         if(!app.multimin.backend.PlatformSupport.isPortable() || multitaskWindow==null)return;
+        if(!Boolean.getBoolean("multimin.linuxDirectPresentation")){resetLinuxDirectPresentation();return;}
         Source source=multitask && !linuxPermissionDialog && "native".equals(backend.linuxInputMode())
             ? PreviewPanel.linuxDirectCandidate(activeView):null;
         Rectangle hole=source==null?null:preview.sourceBoundsInPanel(activeView.sources.indexOf(source));

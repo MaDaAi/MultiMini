@@ -1,4 +1,11 @@
-"""Local, latest-frame transport for Windows Graphics Capture BGRA frames."""
+"""Local, latest-frame transport for captured BGRA frames.
+
+Frames are offered over a loopback socket. When the reader asks for shared
+memory, the pixels are written into a mapping instead of the socket: a named
+mapping on Windows, a private 0600 file under /dev/shm on Linux/macOS. Each
+connection is serialized, so a mapping is never rewritten while the reader is
+still copying the previous frame.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +14,20 @@ import struct
 import threading
 import time
 import mmap
+import os
 import sys
 import secrets
+import tempfile
+
+POSIX_PREFIX = "multimini-frame-"
+SHARED_SUPPORTED = sys.platform == "win32" or os.name == "posix"
+
+
+def posix_shared_directory():
+    """Directory for POSIX frame mappings; shared by Java and Python in one sandbox."""
+    if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK):
+        return "/dev/shm"
+    return tempfile.gettempdir()
 
 
 class SharedReply:
@@ -21,18 +40,33 @@ class SharedReply:
     def write(self, pixels):
         if self.capacity < len(pixels):
             self.close()
-            self.name = 'Local\\MultiMiniFrame-' + secrets.token_hex(16)
-            self.mapping = mmap.mmap(-1, len(pixels), tagname=self.name)
+            if sys.platform == 'win32':
+                self.name = 'Local\\MultiMiniFrame-' + secrets.token_hex(16)
+                self.mapping = mmap.mmap(-1, len(pixels), tagname=self.name)
+            else:
+                self.name = os.path.join(posix_shared_directory(), POSIX_PREFIX + secrets.token_hex(16))
+                fd = os.open(self.name, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+                try:
+                    os.ftruncate(fd, len(pixels))
+                    self.mapping = mmap.mmap(fd, len(pixels))
+                finally:
+                    os.close(fd)
             self.capacity = len(pixels)
         self.mapping.seek(0)
         self.mapping.write(pixels)
-        return self.name.encode('ascii')
+        return self.name.encode('utf-8')
 
     def close(self):
         if self.mapping is not None:
             self.mapping.close()
+            if sys.platform != 'win32' and self.name:
+                try:
+                    os.unlink(self.name)
+                except OSError:
+                    pass
         self.mapping = None
         self.capacity = 0
+        self.name = ''
 
 
 class FrameStream:
@@ -107,7 +141,7 @@ class FrameStream:
                     if not size:
                         return
                     request = struct.unpack("!H", size)[0]
-                    shared_requested = bool(request & 0x8000) and sys.platform == 'win32'
+                    shared_requested = bool(request & 0x8000) and SHARED_SUPPORTED
                     name_length = request & 0x7fff
                     if name_length > 4096:
                         return

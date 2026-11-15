@@ -236,6 +236,7 @@ class X11Capture:
         d = display.Display()
         win = d.create_resource_object('window', int(xid))
         last_error = 0
+        last_grab = 0.0
         grabber = None
         try:
             from .linux_xshm import XShmGrabber
@@ -258,9 +259,21 @@ class X11Capture:
                         continue
                     if grabber is not None:
                         try:
+                            if grabber.event_driven:
+                                # Like WGC's frame-arrived event: grab right after the
+                                # game presents, never on a timer that drifts against it.
+                                # 250 ms timeout keeps close/unmap detection responsive.
+                                if not grabber.wait_for_change(.25):
+                                    continue
+                                period = 1/max(1,min(1000,fps()))
+                                wait = period-(time.monotonic()-last_grab)
+                                if wait > 0:
+                                    self.stop.wait(wait)  # FPS cap; then grab the newest pixels
                             w,h,pixels=grabber.grab()
-                            publish(w,h,pixels)  # Java forces opaque alpha.
-                            self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
+                            last_grab=time.monotonic()
+                            publish(w,h,pixels)  # Java draws these as opaque RGB.
+                            if not grabber.event_driven:
+                                self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
                             continue
                         except Exception:
                             grabber.close()

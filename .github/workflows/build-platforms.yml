@@ -40,6 +40,17 @@ jobs:
       - name: Compile macOS Java app
         if: runner.os == 'macOS'
         run: ./scripts/build-mac.sh
+      - name: Frame transport check (socket and shared memory)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          PYTHONPATH: python
+        run: |
+          jar=build/internal/MultiMini-Linux.jar
+          [ "$RUNNER_OS" = macOS ] && jar=build/internal/MultiMini-Mac.jar
+          mkdir -p build/checks
+          javac --release 25 -cp "$jar" -d build/checks native/tests/FrameBridgeCheck.java
+          python scripts/check-frame-bridge.py "$jar" build/checks
       - name: Shared UI contrast and policy check
         if: runner.os == 'Linux'
         run: |

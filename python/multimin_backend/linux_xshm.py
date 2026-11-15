@@ -132,7 +132,24 @@ def _load():
         libc.shmat.restype = ctypes.c_void_p
         libc.shmdt.argtypes = [ctypes.c_void_p]
         libc.shmctl.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
-        _libs = (x11, xext, comp, libc)
+        x11.XPending.argtypes = [ctypes.c_void_p]
+        x11.XPending.restype = ctypes.c_int
+        x11.XNextEvent.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        x11.XConnectionNumber.argtypes = [ctypes.c_void_p]
+        x11.XConnectionNumber.restype = ctypes.c_int
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+        damage = None
+        try:
+            damage = ctypes.CDLL(ctypes.util.find_library("Xdamage") or "libXdamage.so.1")
+            damage.XDamageQueryExtension.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
+            damage.XDamageQueryExtension.restype = ctypes.c_int
+            damage.XDamageCreate.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int]
+            damage.XDamageCreate.restype = ctypes.c_ulong
+            damage.XDamageDestroy.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            damage.XDamageSubtract.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+        except OSError:
+            damage = None  # Timer-paced capture still works without XDamage.
+        _libs = (x11, xext, comp, libc, damage)
         return _libs
 
 
@@ -140,7 +157,7 @@ class XShmGrabber:
     """Reads one X11 window's pixels into Python bytes (BGRA, 4 bytes/pixel)."""
 
     def __init__(self, xid: int):
-        self.x11, self.xext, self.comp, self.libc = _load()
+        self.x11, self.xext, self.comp, self.libc, self.xdamage = _load()
         self.xid = int(xid)
         self.display = self.x11.XOpenDisplay(None)
         if not self.display:
@@ -148,6 +165,8 @@ class XShmGrabber:
         self.image = None
         self.info = XShmSegmentInfo()
         self.size = (0, 0)
+        self.damage = 0
+        self.damage_event = -1
         try:
             if not self.xext.XShmQueryExtension(self.display):
                 raise XShmUnavailable("MIT-SHM extension unavailable")
@@ -158,9 +177,52 @@ class XShmGrabber:
             if not self.x11.XGetWindowAttributes(self.display, self.xid, ctypes.byref(attributes)) or _error_counter[0] != before:
                 raise XShmUnavailable("window attributes unavailable")
             self.visual, self.depth = attributes.visual, attributes.depth
+            self._start_damage()
         except Exception:
             self.close()
             raise
+
+    def _start_damage(self):
+        """Ask X to tell us when the window's pixels change (like WGC frame events)."""
+        if self.xdamage is None or os.environ.get("MULTIMIN_XDAMAGE", "1") == "0":
+            return
+        event_base, error_base = ctypes.c_int(), ctypes.c_int()
+        if not self.xdamage.XDamageQueryExtension(self.display, ctypes.byref(event_base), ctypes.byref(error_base)):
+            return
+        before = _error_counter[0]
+        damage = self.xdamage.XDamageCreate(self.display, self.xid, 3)  # XDamageReportNonEmpty
+        self.x11.XSync(self.display, 0)
+        if damage and _error_counter[0] == before:
+            self.damage, self.damage_event = damage, event_base.value  # XDamageNotify == base + 0
+
+    @property
+    def event_driven(self):
+        return bool(self.damage)
+
+    def wait_for_change(self, timeout):
+        """Block until the window changes or timeout; True when it changed."""
+        import select
+        import time
+        if not self.damage:
+            return True
+        deadline = time.monotonic() + max(0.0, timeout)
+        event = (ctypes.c_long * 24)()  # XEvent is a 192-byte union
+        fd = self.x11.XConnectionNumber(self.display)
+        while True:
+            changed = False
+            while self.x11.XPending(self.display):
+                self.x11.XNextEvent(self.display, event)
+                if ctypes.cast(event, ctypes.POINTER(ctypes.c_int))[0] == self.damage_event:
+                    changed = True
+            if changed:
+                # Re-arm: report the next change as a new event.
+                self.xdamage.XDamageSubtract(self.display, self.damage, 0, 0)
+                self.x11.XFlush(self.display)
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            select.select([fd], [], [], min(remaining, 0.05))
 
     def _ensure(self, width, height):
         if self.image and self.size == (width, height):
@@ -257,6 +319,12 @@ class XShmGrabber:
 
     def close(self):
         if getattr(self, "display", None):
+            if self.damage and self.xdamage is not None:
+                try:
+                    self.xdamage.XDamageDestroy(self.display, self.damage)
+                except Exception:
+                    pass
+                self.damage = 0
             self._release_image()
             self.x11.XCloseDisplay(self.display)
             self.display = None
