@@ -197,3 +197,15 @@ The Linux build includes a small original JAWT bridge (`native/LinuxWindow.cpp`)
 that tags/reports only MultiMini's realized overlay window. This avoids guessing
 its identity from hidden toolkit windows and works with the Flatpak PID namespace.
 It is separate from the existing Windows JNI implementation.
+
+## Updates (1.10.1+)
+
+Install from the MultiMini Flatpak repository once:
+
+```bash
+flatpak install --user https://madaai.github.io/MultiMini/multimini.flatpakref
+```
+
+After that, Settings → Updates installs new versions in the app (through the
+Flatpak portal) and restarts MultiMini; `flatpak update` and software centres
+work too. Release bundles also carry this update source.

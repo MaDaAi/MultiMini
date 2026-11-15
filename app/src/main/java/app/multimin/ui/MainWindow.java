@@ -410,6 +410,7 @@ public final class MainWindow extends JFrame {
     }
 
     Palette uiPalette(){return palette;}
+    PythonBridge backendBridge(){return backend;}
     public void checkForUpdatesOnLaunch(){GithubUpdater.checkOnLaunch(this,()->{if(!workspaceWritable)throw new IllegalStateException("Recover your workspace before updating");try{workspaceStore.save(views,activeView);}catch(java.io.IOException error){throw new IllegalStateException("Workspace could not be saved",error);}},()->{shutdownServices();dispose();System.exit(0);});}
     private void buildUi() {
         root.setBackground(palette.background); configuration.setOpaque(false); topBar.setLayout(new BoxLayout(topBar, BoxLayout.X_AXIS));

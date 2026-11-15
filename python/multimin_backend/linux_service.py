@@ -153,6 +153,12 @@ class LinuxService:
         from .linux_x11 import X11Capture
         return X11Capture(xid, publish, error, lambda: self._effective_fps(path))
 
+    def _flatpak_updater(self):
+        if getattr(self, "updater", None) is None:
+            from .linux_update import FlatpakUpdater
+            self.updater = FlatpakUpdater(self.portal.bus, self.portal.Gio, self.portal.GLib, self.emit)
+        return self.updater
+
     def _effective_fps(self, path):
         limit = self.background_limits.get(path, 0)
         return min(self.fps, limit) if limit else self.fps
@@ -464,6 +470,12 @@ class LinuxService:
             self.source_paced = bool(message.get("source_paced", False))
             self.frame_deadlines.clear()
             return {"event": "capture_fps_changed", "value": self.fps}
+        if command == "flatpak_update":
+            self._flatpak_updater().update()
+            return {"event": "flatpak_update_started"}
+        if command == "flatpak_restart":
+            self._flatpak_updater().restart()
+            return {"event": "flatpak_restart_requested"}
         if command == "linux_background_capture":
             path = str(message.get("path", ""))
             fps = max(0, min(1000, int(message.get("fps", 0))))

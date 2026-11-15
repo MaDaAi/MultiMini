@@ -15,7 +15,7 @@ final class GithubUpdater {
     static void checkOnLaunch(JFrame owner,Runnable save,Runnable exit){if(Boolean.getBoolean("multimin.publicUpdates"))check(owner,save,exit,true);}
     static void show(JFrame owner,Runnable save,Runnable exit){check(owner,save,exit,false);}
     private static void check(JFrame owner, Runnable save, Runnable exit, boolean startup) {
-        if (app.multimin.backend.PlatformSupport.isPortable()) { portableCheck(owner, startup); return; }
+        if (app.multimin.backend.PlatformSupport.isPortable()) { portableCheck(owner, startup, save, exit); return; }
         if (busy && startup)return;
         if (busy) { message(owner,"An update operation is already in progress."); return; }
         Path install;
@@ -36,8 +36,9 @@ final class GithubUpdater {
 
     /**
      * Linux and macOS share the Windows release stream (same GitHub releases and
-     * notes) but never install anything themselves: they announce the update and
-     * open the release page. Drafts and prereleases are never "latest".
+     * notes). Flatpak installs update through the Flatpak portal from the signed
+     * MultiMini repository; macOS downloads the .dmg, verifies its SHA-256 and
+     * replaces the app after exit. Drafts and prereleases are never "latest".
      */
     static final String RELEASES_API="https://api.github.com/repos/MaDaAi/MultiMini/releases/latest";
     static String platformAssetPattern(){
@@ -45,14 +46,24 @@ final class GithubUpdater {
             ? "MultiMini-([0-9]+(?:\\.[0-9]+){0,3})-macOS-[A-Za-z0-9_]+\\.dmg"
             : "MultiMini-([0-9]+(?:\\.[0-9]+){0,3})-Linux-x86_64\\.flatpak";
     }
-    record PortableRelease(String version,String notes,String page){}
+    record PortableRelease(String version,String notes,String page,String assetName,String assetUrl,String sumUrl){
+        PortableRelease(String version,String notes,String page){this(version,notes,page,"","","");}
+    }
+    static final String DOWNLOAD_PREFIX="https://github.com/MaDaAi/MultiMini/releases/download/";
     /** Parse GitHub's latest-release JSON; null when it has no asset for this OS. */
     static PortableRelease parseLatest(String json,String assetPattern){
         var asset=Pattern.compile("\"name\"\\s*:\\s*\""+assetPattern+"\"").matcher(json);
         if(!asset.find())return null;
         var page=Pattern.compile("\"html_url\"\\s*:\\s*\"(https://github\\.com/MaDaAi/MultiMini/releases/tag/[^\"]+)\"").matcher(json);
         var body=Pattern.compile("\"body\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"").matcher(json);
-        return new PortableRelease(asset.group(1),body.find()?unescapeJson(body.group(1)):"",page.find()?page.group(1):"https://github.com/MaDaAi/MultiMini/releases");
+        String name=asset.group().substring(asset.group().indexOf("MultiMini-"),asset.group().length()-1);
+        return new PortableRelease(asset.group(1),body.find()?unescapeJson(body.group(1)):"",page.find()?page.group(1):"https://github.com/MaDaAi/MultiMini/releases",
+            name,downloadUrl(json,name),downloadUrl(json,name+".sha256"));
+    }
+    /** Only accept download URLs on this repository's release host for the exact asset name. */
+    private static String downloadUrl(String json,String name){
+        var url=Pattern.compile("\"browser_download_url\"\\s*:\\s*\"("+Pattern.quote(DOWNLOAD_PREFIX)+"[^\"/]+/"+Pattern.quote(name)+")\"").matcher(json);
+        return url.find()?url.group(1):"";
     }
     static String unescapeJson(String text){
         StringBuilder out=new StringBuilder(text.length());
@@ -70,7 +81,7 @@ final class GithubUpdater {
         }
         return out.toString();
     }
-    private static void portableCheck(JFrame owner,boolean startup){
+    private static void portableCheck(JFrame owner,boolean startup,Runnable save,Runnable exit){
         if(busy)return;
         busy=true;
         new SwingWorker<PortableRelease,Void>(){
@@ -91,16 +102,35 @@ final class GithubUpdater {
                     if(release==null||compareVersions(release.version(),current())<=0){if(!startup)message(owner,"Congrats, you are on the latest available version");return;}
                     Palette palette=owner instanceof MainWindow main?main.uiPalette():new Palette();
                     if(!UpdateDialog.offer(owner,palette,current(),release.version(),release.notes()))return;
+                    if(app.multimin.backend.PlatformSupport.isMac()){MacUpdater.install(owner,release,save,exit);return;}
+                    if(System.getenv("FLATPAK_ID")!=null&&owner instanceof MainWindow main){flatpakInstall(main,save,exit);return;}
                     openPage(owner,release.page());
-                    message(owner,app.multimin.backend.PlatformSupport.isMac()
-                        ? "Download the macOS .dmg from the release page, quit MultiMini and replace the app in Applications.\nYour views, sources, settings and screenshots are kept."
-                        : System.getenv("FLATPAK_ID")!=null
-                            ? "Download the .flatpak from the release page and install it with:\nflatpak --user install MultiMini-"+release.version()+"-Linux-x86_64.flatpak\nYour views, sources, settings and screenshots are kept."
-                            : "Download the newer Linux build from the release page. Your saved data is kept.");
+                    message(owner,"This copy runs from source. Pull the latest code and rebuild, or install the Flatpak to get automatic updates.");
                 }catch(Exception error){if(!startup)message(owner,"Update check failed: "+cause(error));}
             }
         }.execute();
     }
+    /** Linux Flatpak: update through the Flatpak portal, then relaunch the newest version. */
+    private static void flatpakInstall(MainWindow owner,Runnable save,Runnable exit){
+        var backend=owner.backendBridge();
+        JDialog progress=progress(owner,"Updating MultiMini through Flatpak…");
+        busy=true;
+        backend.setFlatpakUpdateHandler((state,percent,text)->SwingUtilities.invokeLater(()->{
+            if("progress".equals(state))return;
+            progress.dispose();backend.setFlatpakUpdateHandler(null);busy=false;
+            if("done".equals(state)){
+                try{save.run();}catch(Exception error){message(owner,"The update is installed, but saving failed: "+cause(error)+"\nRestart MultiMini yourself to use the new version.");return;}
+                backend.send("{\"command\":\"flatpak_restart\"}");
+                exit.run();
+            } else {
+                message(owner,"none".equals(state)?"Flatpak reports MultiMini is already up to date. Restart MultiMini if a new version was installed in the background.":text);
+            }
+        }));
+        backend.send("{\"command\":\"flatpak_update\"}");
+    }
+    static JDialog progressDialog(JFrame owner,String text){return progress(owner,text);}
+    static void notice(JFrame owner,String text){message(owner,text);}
+    static String failure(Exception error){return cause(error);}
     private static void openPage(JFrame owner,String page){
         try{
             if(java.awt.Desktop.isDesktopSupported()&&java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)){java.awt.Desktop.getDesktop().browse(java.net.URI.create(page));return;}

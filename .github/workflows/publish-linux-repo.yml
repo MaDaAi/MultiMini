@@ -1,0 +1,55 @@
+name: Publish Linux Flatpak repository
+# Builds the released commit, signs it, and serves the Flatpak repository on
+# GitHub Pages so installed copies update in-app or with `flatpak update`.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or commit to publish (normally the latest release tag)
+        required: true
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: linux-flatpak-repo
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.event.release.tag_name }}
+      - name: Install Flatpak build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install -y --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49 org.freedesktop.Sdk.Extension.openjdk25//25.08
+      - name: Import repository signing key
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          test -n "$FLATPAK_GPG_PRIVATE_KEY" || { echo "Add the FLATPAK_GPG_PRIVATE_KEY secret (see docs/LINUX.md)"; exit 1; }
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"; mkdir -m 700 -p "$GNUPGHOME"
+          echo "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "FLATPAK_GPG_HOMEDIR=$GNUPGHOME" >> "$GITHUB_ENV"
+      - name: Build and sign
+        env:
+          FLATPAK_GPG_KEY_ID: 48EE2A545E12328FF86A7E1E2559C6CB1D3E27F2
+        run: ./scripts/package-linux.sh
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: build/linux-site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

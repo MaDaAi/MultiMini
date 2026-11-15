@@ -87,3 +87,27 @@ The historical `.github/workflows/release-1.0.6.yml` publishes on its own
 trigger; leave it alone. Any future release workflow should be
 `workflow_dispatch`-only and create a **draft** release (drafts are invisible
 to the Windows updater) until the publisher promotes it.
+
+## In-app updates on Linux and macOS (since 1.10.1)
+
+Settings → Updates (and the startup check) behave the same on every OS: read
+the latest GitHub release, show its notes, and install on confirmation.
+
+- **Linux (Flatpak):** `GithubUpdater.flatpakInstall` → backend `flatpak_update`
+  → `linux_update.FlatpakUpdater` asks the Flatpak portal
+  (`org.freedesktop.portal.Flatpak` UpdateMonitor) to update this app from its
+  remote, then `flatpak_restart` spawns the newest version and the app exits.
+  No host commands and no extra sandbox permissions. The remote is the signed
+  OSTree repo at https://madaai.github.io/MultiMini/repo/, published by
+  `.github/workflows/publish-linux-repo.yml` whenever a release is published
+  (signing key: repository secret `FLATPAK_GPG_PRIVATE_KEY`, public key
+  `packaging/linux/multimini-repo.gpg`, fingerprint
+  48EE2A545E12328FF86A7E1E2559C6CB1D3E27F2). Bundles from 1.10.1 on also
+  point at that repo. Copies installed from the 1.10 (or older) bundle need
+  one reinstall: `flatpak install --user --reinstall https://madaai.github.io/MultiMini/multimini.flatpakref`.
+  Software centres and `flatpak update` see the same updates.
+- **macOS:** `MacUpdater` downloads the release `.dmg` and `.sha256` from this
+  repository only, verifies SHA-256, saves the workspace, quits, and a helper
+  script mounts the image, checks the app signature, swaps the app with a
+  rollback backup and relaunches. Works when MultiMini.app sits in a folder the
+  user can write (normally /Applications).

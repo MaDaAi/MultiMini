@@ -25,6 +25,10 @@ public final class PythonBridge implements AutoCloseable {
     private volatile Consumer<String> captureStoppedHandler=ignored->{};
     private volatile java.util.function.BiConsumer<String,String> restoreTokenHandler=(ignoredPath,ignoredToken)->{};
     public void setRestoreTokenHandler(java.util.function.BiConsumer<String,String> handler){restoreTokenHandler=handler;}
+    /** Flatpak in-app update events: state (progress/done/none/failed), percent, message. */
+    public interface FlatpakUpdateListener { void update(String state, int progress, String message); }
+    private volatile FlatpakUpdateListener flatpakUpdateHandler=(state,progress,message)->{};
+    public void setFlatpakUpdateHandler(FlatpakUpdateListener handler){flatpakUpdateHandler=handler==null?(s,p,m)->{}:handler;}
     public void setCaptureStoppedHandler(Consumer<String> handler){captureStoppedHandler=handler;}
     private volatile Consumer<String> imageFileHandler = ignored -> {};
     public void requestImageFile(Consumer<String> handler) {
@@ -88,7 +92,14 @@ public final class PythonBridge implements AutoCloseable {
                         status.accept(PlatformSupport.isPortable() ? PlatformSupport.osLabel() + " capture ready · choose a source to share" : "Input passthrough ready · live display active");
                         flushPendingCommands();
                         while ((line = reader.readLine()) != null) {
-                            if(line.contains("\"event\":\"linux_restore_token\"")) {
+                            if(line.contains("\"event\":\"flatpak_update\"")) {
+                                Matcher state=Pattern.compile("\"state\":\"([a-z]+)\"").matcher(line);
+                                Matcher progress=Pattern.compile("\"progress\":(\\d+)").matcher(line);
+                                Matcher text=Pattern.compile("\"message64\":\"([^\"]*)\"").matcher(line);
+                                flatpakUpdateHandler.update(state.find()?state.group(1):"failed",progress.find()?Integer.parseInt(progress.group(1)):0,
+                                    text.find()?new String(Base64.getDecoder().decode(text.group(1)),StandardCharsets.UTF_8):"");
+                            }
+                            else if(line.contains("\"event\":\"linux_restore_token\"")) {
                                 Matcher tokenPath=Pattern.compile("\"path64\":\"([^\"]*)\"").matcher(line);
                                 Matcher token=Pattern.compile("\"token64\":\"([^\"]*)\"").matcher(line);
                                 if(tokenPath.find()&&token.find())restoreTokenHandler.accept(new String(Base64.getDecoder().decode(tokenPath.group(1)),StandardCharsets.UTF_8),new String(Base64.getDecoder().decode(token.group(1)),StandardCharsets.UTF_8));
