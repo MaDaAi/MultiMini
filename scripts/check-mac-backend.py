@@ -1,4 +1,4 @@
-"""Smoke-test the macOS backend on a real Mac (used by CI on macos-14).
+"""Smoke-test the macOS backend on a real Mac (used by CI on macos-15).
 
 Fails on import errors or wrong PyObjC API names. Capture itself may be denied
 on CI (no Screen Recording permission); that is reported, not failed.

@@ -42,12 +42,16 @@ class LinuxTests(unittest.TestCase):
         self.env.start()
         self.legacy_temp=patch("multimin_backend.snapshots.tempfile.gettempdir",return_value=self.temp.name)
         self.legacy_temp.start()
+        # These tests simulate Linux, including when the suite runs on macOS CI.
+        self.not_mac=patch("multimin_backend.snapshots.IS_MAC",False)
+        self.not_mac.start()
         self.events = []
         self.portal = Portal()
         self.service = LinuxService(self.events.append, self.portal)
     def tearDown(self):
         self.service.dispatch({"command": "shutdown"})
         self.legacy_temp.stop()
+        self.not_mac.stop()
         self.env.stop()
         self.temp.cleanup()
     def test_platform_selection(self):

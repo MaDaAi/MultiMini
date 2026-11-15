@@ -10,10 +10,11 @@ from contextlib import contextmanager
 from pathlib import Path
 
 RETENTION_SECONDS = 7 * 24 * 60 * 60
+IS_MAC = sys.platform == "darwin"
 
 class SnapshotStore:
     def __init__(self, directory: Path | None = None) -> None:
-        if directory is None and sys.platform == "darwin":
+        if directory is None and IS_MAC:
             # Must match PlatformSupport.screenshotDirectory() on macOS.
             directory = Path.home() / "Library" / "Application Support" / "MultiMini" / "screenshots"
         base = os.environ.get("LOCALAPPDATA") if os.name == "nt" else os.environ.get("XDG_DATA_HOME")
