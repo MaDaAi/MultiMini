@@ -186,6 +186,11 @@ class WindowsInputBridge:
         self.user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
         self.user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
         self.user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+        # Without a pointer-sized HWND argument, HWND_TOPMOST/NOTOPMOST (-1/-2) were
+        # passed as 32-bit ints on x64, so window restore and topmost stacking failed.
+        self.user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                                             ctypes.c_int, ctypes.c_int, wintypes.UINT]
+        self.user32.SetWindowPos.restype = wintypes.BOOL
         self.user32.GetWindowDC.argtypes = [wintypes.HWND]
         self.user32.GetWindowDC.restype = wintypes.HDC
         self.user32.GetDC.argtypes = [wintypes.HWND]
@@ -403,7 +408,7 @@ class WindowsInputBridge:
         self._mouse_excluded_rect = tuple(int(value) for value in rect)
 
     def set_mouse_target(self, hwnd: int, rect: tuple[int, int, int, int], excluded: tuple[int, int, int, int] = (0, 0, 0, 0),
-                         desktop_input: bool = False) -> None:
+                         desktop_input: bool = False, keep_size: bool = False) -> None:
         if not self._layer_layout_active:
             self._restore_aligned_window()
         self._release_mouse_buttons()
@@ -420,7 +425,7 @@ class WindowsInputBridge:
         if self._layer_layout_active:
             self._update_layer_input()
         elif self._exclusive_input and self._mouse_target_hwnd and not self._desktop_input:
-            self._align_target_window(self._mouse_target_hwnd, self._mouse_target_rect)
+            self._align_target_window(self._mouse_target_hwnd, self._mouse_target_rect, keep_size)
 
     def set_layer_layout(self, items: list[dict]) -> None:
         if not self._exclusive_input:
@@ -443,6 +448,13 @@ class WindowsInputBridge:
                 old = _Rect()
                 if not self.user32.GetWindowRect(hwnd, ctypes.byref(old)):
                     continue
+                aligned = self._aligned_window
+                if aligned is not None and aligned[0] == hwnd:
+                    # Input alignment already moved this window; the layer
+                    # layout now owns restoring it to where the user had it.
+                    self._aligned_window = None
+                    ax, ay, aw, ah = aligned[1]
+                    old.left, old.top, old.right, old.bottom = ax, ay, ax + aw, ay + ah
                 style = int(get_style(hwnd, self.GWL_EXSTYLE))
                 color = wintypes.COLORREF()
                 alpha = wintypes.BYTE(255)
@@ -456,7 +468,12 @@ class WindowsInputBridge:
                 set_style(hwnd, self.GWL_EXSTYLE, style | self.WS_EX_LAYERED)
             opacity = max(1, min(255, round(int(item.get("opacity", 100)) * 255 / 100)))
             self.user32.SetLayeredWindowAttributes(hwnd, 0, opacity, self.LWA_ALPHA)
-            self.user32.SetWindowPos(hwnd, None, x, y, width, height, self.SWP_NOZORDER)
+            if item.get("keep_size"):
+                # The UI does not know this source's size yet (no frame): move
+                # it into place but never stretch the real window to a guess.
+                self.user32.SetWindowPos(hwnd, None, x, y, 0, 0, self.SWP_NOZORDER | self.SWP_NOSIZE)
+            else:
+                self.user32.SetWindowPos(hwnd, None, x, y, width, height, self.SWP_NOZORDER)
         self._update_layer_input()
 
     def _update_layer_input(self) -> None:
@@ -530,8 +547,17 @@ class WindowsInputBridge:
         except OSError:
             pass
 
-    def _align_target_window(self, hwnd: int, rect: tuple[int, int, int, int]) -> None:
+    def _align_target_window(self, hwnd: int, rect: tuple[int, int, int, int], keep_size: bool = False) -> None:
         x, y, width, height = rect
+        if width <= 0 or height <= 0:
+            self.emit({"event": "error", "message": "Window input needs visible preview bounds"})
+            return
+        if keep_size:
+            # Size not known to the UI yet: move into place, keep the window's own size.
+            current = _Rect()
+            if self.user32.GetWindowRect(hwnd, ctypes.byref(current)):
+                width, height = current.right - current.left, current.bottom - current.top
+                self._mouse_target_rect = (x, y, width, height)
         if width <= 0 or height <= 0:
             self.emit({"event": "error", "message": "Window input needs visible preview bounds"})
             return
@@ -539,6 +565,8 @@ class WindowsInputBridge:
         if not self.user32.GetWindowRect(hwnd, ctypes.byref(old)):
             return
         original = (old.left, old.top, old.right - old.left, old.bottom - old.top)
+        if self._aligned_window is not None and self._aligned_window[0] == hwnd:
+            original = self._aligned_window[1]  # keep the user's position from before the first move
         if self.user32.IsIconic(hwnd):
             self.user32.ShowWindow(hwnd, self.SW_RESTORE)
         self._aligned_window = (hwnd, original)
@@ -1111,6 +1139,11 @@ class WindowsInputBridge:
             if self._original_style is None:
                 self._original_style = style
             set_style(hwnd, self.GWL_EXSTYLE, style | self.WS_EX_LAYERED | self.WS_EX_TRANSPARENT)
+            if not (self._original_style & self.WS_EX_LAYERED):
+                # An opaque overlay is not a per-pixel layered window. Click-through
+                # needs WS_EX_LAYERED, and a layered window without attributes is
+                # invisible, so give it constant full opacity.
+                self.user32.SetLayeredWindowAttributes(hwnd, 0, 255, self.LWA_ALPHA)
             # Swing owns this window's per-pixel alpha. SetLayeredWindowAttributes
             # switches it to constant-alpha mode and can stop later paints from
             # updating the visual composition.

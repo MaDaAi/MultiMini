@@ -100,6 +100,10 @@ class FrameStream:
         if notify and self._on_publish is not None:
             self._on_publish()
 
+    def has_frame(self, source: str) -> bool:
+        with self._lock:
+            return source in self._frames
+
     def remove(self, source: str) -> None:
         with self._lock:
             self._pending_notifications.discard(source)
@@ -169,10 +173,11 @@ class FrameStream:
                             except (OSError, ValueError):
                                 shared_requested = False
                             else:
-                                client.sendall(struct.pack("!IIQQIH", width, height, sequence, timestamp,
+                                # Age, not a timestamp: Java and Python clocks differ.
+                                client.sendall(struct.pack("!IIQQIH", width, height, sequence, max(0, time.monotonic_ns() - timestamp),
                                                            0xffffffff, len(mapping_name)) + mapping_name)
                                 continue
-                        client.sendall(struct.pack("!IIQQI", width, height, sequence, timestamp, len(pixels) if changed else 0))
+                        client.sendall(struct.pack("!IIQQI", width, height, sequence, max(0, time.monotonic_ns() - timestamp), len(pixels) if changed else 0))
                         if changed:
                             client.sendall(pixels)
             except (OSError, UnicodeDecodeError):

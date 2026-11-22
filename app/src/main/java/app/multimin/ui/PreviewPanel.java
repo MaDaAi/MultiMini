@@ -122,7 +122,7 @@ public final class PreviewPanel extends JPanel {
     public void refreshNativePresentation() {
         if(!locked || !nativePresentationAllowed)return;
         boolean active=false;for(int i=0;i<view.sources.size();i++)active|=view.sources.get(i).nativeCompositionActive;
-        if(!active)return;
+        if(!active){ if(windowSurfaces.retryDue())repaint(); return; }
         canvas=new Rectangle(0,0,getWidth(),getHeight());
         windowSurfaces.update(this,view,canvas,true,this::sourceBoundsInPanel);
     }

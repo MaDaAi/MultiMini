@@ -238,10 +238,14 @@ public final class PythonBridge implements AutoCloseable {
         setInputTarget(name,hwnd,x,y,width,height,excludeX,excludeY,excludeWidth,excludeHeight,desktopInput,"");
     }
     public void setInputTarget(String name,long hwnd,int x,int y,int width,int height,int excludeX,int excludeY,int excludeWidth,int excludeHeight,boolean desktopInput,String sourcePath) {
+        setInputTarget(name,hwnd,x,y,width,height,excludeX,excludeY,excludeWidth,excludeHeight,desktopInput,sourcePath,false);
+    }
+    /** keepSize: the source's real size is not known yet; move the window but never resize it. */
+    public void setInputTarget(String name,long hwnd,int x,int y,int width,int height,int excludeX,int excludeY,int excludeWidth,int excludeHeight,boolean desktopInput,String sourcePath,boolean keepSize) {
         send("{\"command\":\"set_input_target\",\"name\":\"" + escape(name) + "\",\"hwnd\":" + hwnd +
             ",\"x\":" + x + ",\"y\":" + y + ",\"width\":" + width + ",\"height\":" + height +
             ",\"exclude_x\":" + excludeX + ",\"exclude_y\":" + excludeY + ",\"exclude_width\":" + excludeWidth + ",\"exclude_height\":" + excludeHeight +
-            ",\"desktop_input\":" + desktopInput + ",\"source_path\":\""+escape(sourcePath==null?"":sourcePath)+"\"}");
+            ",\"desktop_input\":" + desktopInput + ",\"keep_size\":" + keepSize + ",\"source_path\":\""+escape(sourcePath==null?"":sourcePath)+"\"}");
     }
     public void setMultitaskOverlay(boolean enabled, boolean clickThrough) {
         setMultitaskOverlay(enabled, clickThrough, "END");
