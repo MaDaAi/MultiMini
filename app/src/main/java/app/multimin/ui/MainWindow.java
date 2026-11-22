@@ -78,12 +78,12 @@ public final class MainWindow extends JFrame {
         !preferences.getBoolean("captureFpsChoiceV2", false) && preferences.getInt("captureFps", 0) == 60
             ? 0 : preferences.getInt("captureFps", 0)));
     private int revealCornerIndex = Math.clamp(preferences.getInt("revealCorner", 0), 0, 4);
-    private String stopKeyBinding = preferences.getString("stopKey", "END");
+    private String stopKeyBinding = platformKey(preferences.getString("stopKey", "END"));
     private String pendingWindowSourceName;
     private boolean pendingWindowNameManual;
     private String pendingImageName;
-    private String swapKeyBinding = preferences.getString("swapInputKey", "RIGHT_CTRL");
-    private String layerSwapKeyBinding = preferences.getString("swapLayersKey", "PAUSE");
+    private String swapKeyBinding = platformKey(preferences.getString("swapInputKey", "RIGHT_CTRL"));
+    private String layerSwapKeyBinding = platformKey(preferences.getString("swapLayersKey", "PAUSE"));
     private boolean recordingLayerSwapKey;
     private JButton layerSwapKeyButton;
     private boolean recordingSwapKey;
@@ -97,7 +97,22 @@ public final class MainWindow extends JFrame {
     private JButton multitaskExitButton;
     private JLabel multitaskTargetLabel;
     private javax.swing.Timer inputNoticeTimer;
-    private String screenshotKey=preferences.getString("screenshotKey","INSERT"), regionScreenshotKey=preferences.getString("regionScreenshotKey","CTRL+SHIFT+F12");
+    /**
+     * MacBook keyboards have no End, Pause, Insert or Right Ctrl, so the Windows
+     * defaults map to Mac-friendly ones. Bindings the user recorded are kept.
+     */
+    static String platformKey(String binding) {
+        if (!app.multimin.backend.PlatformSupport.isMac() || binding == null) return binding;
+        return switch (binding) {
+            case "END" -> "CTRL+ALT+E";
+            case "RIGHT_CTRL" -> "RIGHT_ALT";
+            case "PAUSE" -> "CTRL+ALT+L";
+            case "INSERT" -> "CTRL+ALT+S";
+            case "CTRL+SHIFT+F12" -> "CTRL+ALT+R";
+            default -> binding;
+        };
+    }
+    private String screenshotKey=platformKey(preferences.getString("screenshotKey","INSERT")), regionScreenshotKey=platformKey(preferences.getString("regionScreenshotKey","CTRL+SHIFT+F12"));
     private ScreenshotSelection screenshotSelection;
     { if("SHIFT+INSERT".equals(regionScreenshotKey)){regionScreenshotKey="CTRL+SHIFT+F12";preferences.putString("regionScreenshotKey",regionScreenshotKey);} }
     private void configureScreenshotKeys(){backend.send("{\"command\":\"screenshot_shortcuts\",\"full\":\""+screenshotKey+"\",\"region\":\""+regionScreenshotKey+"\"}");}
@@ -685,15 +700,49 @@ public final class MainWindow extends JFrame {
     private String keyBindingForEvent(KeyEvent event) {
         int code = event.getKeyCode();
         if (code == KeyEvent.VK_CONTROL && event.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT) return "RIGHT_CTRL";
+        boolean mac = app.multimin.backend.PlatformSupport.isMac();
+        // Mac keyboards: Right Option is the natural single-key swap.
+        if (mac && code == KeyEvent.VK_ALT && event.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT) return "RIGHT_ALT";
         if (code == KeyEvent.VK_CONTROL || code == KeyEvent.VK_SHIFT || code == KeyEvent.VK_ALT || code == KeyEvent.VK_ALT_GRAPH || code == KeyEvent.VK_META) return null;
-        String key = KeyEvent.getKeyText(code).toUpperCase(java.util.Locale.ROOT).replace(' ', '_');
+        // macOS getKeyText returns symbols (e.g. arrows, ⎋); use stable key names there.
+        String key = mac ? macKeyName(code) : KeyEvent.getKeyText(code).toUpperCase(java.util.Locale.ROOT).replace(' ', '_');
+        if (key == null) return null;
         StringBuilder binding = new StringBuilder();
         if ((event.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) binding.append("CTRL+");
         if ((event.getModifiersEx() & KeyEvent.SHIFT_DOWN_MASK) != 0) binding.append("SHIFT+");
         if ((event.getModifiersEx() & KeyEvent.ALT_DOWN_MASK) != 0) binding.append("ALT+");
+        if (mac && (event.getModifiersEx() & KeyEvent.META_DOWN_MASK) != 0) binding.append("CMD+");
         return binding.append(key).toString();
     }
-    private String prettyKeyBinding(String binding) { return "RIGHT_CTRL".equals(binding) ? "Right Ctrl" : binding.replace("_", " ").replace("+", " + "); }
+    /** Stable names for macOS key codes, matching mac_hotkeys.KEYCODES. */
+    static String macKeyName(int code) {
+        if (code >= KeyEvent.VK_A && code <= KeyEvent.VK_Z) return String.valueOf((char) code);
+        if (code >= KeyEvent.VK_0 && code <= KeyEvent.VK_9) return String.valueOf((char) code);
+        if (code >= KeyEvent.VK_F1 && code <= KeyEvent.VK_F12) return "F" + (code - KeyEvent.VK_F1 + 1);
+        if (code >= KeyEvent.VK_F13 && code <= KeyEvent.VK_F20) return "F" + (code - KeyEvent.VK_F13 + 13);
+        return switch (code) {
+            case KeyEvent.VK_END -> "END"; case KeyEvent.VK_HOME -> "HOME";
+            case KeyEvent.VK_PAGE_UP -> "PAGE_UP"; case KeyEvent.VK_PAGE_DOWN -> "PAGE_DOWN";
+            case KeyEvent.VK_LEFT -> "LEFT"; case KeyEvent.VK_RIGHT -> "RIGHT"; case KeyEvent.VK_UP -> "UP"; case KeyEvent.VK_DOWN -> "DOWN";
+            case KeyEvent.VK_ESCAPE -> "ESCAPE"; case KeyEvent.VK_ENTER -> "ENTER"; case KeyEvent.VK_TAB -> "TAB";
+            case KeyEvent.VK_SPACE -> "SPACE"; case KeyEvent.VK_BACK_SPACE -> "BACK_SPACE"; case KeyEvent.VK_DELETE -> "DELETE";
+            case KeyEvent.VK_HELP, KeyEvent.VK_INSERT -> "INSERT"; case KeyEvent.VK_PAUSE -> "PAUSE";
+            case KeyEvent.VK_MINUS -> "MINUS"; case KeyEvent.VK_EQUALS -> "EQUALS"; case KeyEvent.VK_COMMA -> "COMMA";
+            case KeyEvent.VK_PERIOD -> "PERIOD"; case KeyEvent.VK_SLASH -> "SLASH"; case KeyEvent.VK_SEMICOLON -> "SEMICOLON";
+            case KeyEvent.VK_QUOTE -> "QUOTE"; case KeyEvent.VK_OPEN_BRACKET -> "OPEN_BRACKET"; case KeyEvent.VK_CLOSE_BRACKET -> "CLOSE_BRACKET";
+            case KeyEvent.VK_BACK_SLASH -> "BACK_SLASH"; case KeyEvent.VK_BACK_QUOTE -> "BACK_QUOTE";
+            default -> null;
+        };
+    }
+    private String prettyKeyBinding(String binding) {
+        if ("RIGHT_CTRL".equals(binding)) return "Right Ctrl";
+        if (app.multimin.backend.PlatformSupport.isMac()) {
+            if ("RIGHT_ALT".equals(binding)) return "Right Option";
+            return binding.replace("CTRL+", "Control + ").replace("ALT+", "Option + ").replace("CMD+", "Command + ")
+                .replace("SHIFT+", "Shift + ").replace("_", " ");
+        }
+        return binding.replace("_", " ").replace("+", " + ");
+    }
     private void displayFrameArrived(int deviceIndex, java.awt.image.BufferedImage frame) {
         pendingDisplayFrames.put(deviceIndex, frame);
         queueDisplayFrameUpdate();
@@ -1506,6 +1555,13 @@ public final class MainWindow extends JFrame {
                 ? Color.BLACK : new Color(0, 0, 0, 0));
             multitaskWindow.setContentPane(preview);
             Rectangle screenBounds = device.getDefaultConfiguration().getBounds();
+            if (app.multimin.backend.PlatformSupport.isMac()) {
+                // Keep the overlay below the menu bar (and the camera notch on
+                // MacBooks); macOS would otherwise push or clip a full-screen window.
+                Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(device.getDefaultConfiguration());
+                screenBounds = new Rectangle(screenBounds.x, screenBounds.y + insets.top, screenBounds.width,
+                    Math.max(1, screenBounds.height - insets.top));
+            }
             multitaskWindow.setBounds(screenBounds);
             multitaskWindow.setVisible(true);
             if(app.multimin.backend.PlatformSupport.isPortable()) {

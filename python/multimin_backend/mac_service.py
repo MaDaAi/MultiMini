@@ -44,6 +44,10 @@ class MacService:
         self.input = None
         self.target_info = None
         self.prompted_accessibility = False
+        self.keys = {"toggle_multitask": "CTRL+ALT+E", "quick_swap": "RIGHT_ALT", "layer_swap": "CTRL+ALT+L",
+                     "screenshot_full": "CTRL+ALT+S", "screenshot_region": "CTRL+ALT+R"}
+        self.key_tap = None
+        self.last_actions = {}
 
     # ---- capture -------------------------------------------------------
     def _effective_fps(self, path):
@@ -108,6 +112,51 @@ class MacService:
         if capture:
             capture.close()
         self.frame_stream.forget(path)
+
+    # ---- hotkeys -------------------------------------------------------
+    def _hotkey_emit(self, action):
+        now = time.monotonic()
+        with self.lock:
+            if not self.enabled or now - self.last_actions.get(action, 0) < .1:
+                return
+            self.last_actions[action] = now
+        self.emit({"event": action})
+
+    def _forward_pid(self):
+        # Forward typing only while MultiMini itself is the active app; otherwise
+        # keys already go to whatever app the user switched to.
+        info = self.target_info
+        if not (self.enabled and info and self.input_mode == "directed"):
+            return 0
+        from .mac_hotkeys import frontmost_pid
+        return info["pid"] if self.app_pid and frontmost_pid() == self.app_pid else 0
+
+    def _start_keys(self):
+        self._stop_keys()
+        from . import mac_hotkeys, mac_input
+        if not mac_input.accessibility_trusted():
+            if not self.prompted_accessibility:
+                self.prompted_accessibility = True
+                mac_input.request_accessibility()
+            self.emit({"event": "error", "message": "Hotkeys need Accessibility: System Settings → Privacy & Security → "
+                                                     "Accessibility → turn on MultiMini, then restart MultiMini."})
+            return
+        bindings = [b for b in (mac_hotkeys.parse_binding(action, key) for action, key in self.keys.items()) if b]
+        try:
+            self.key_tap = mac_hotkeys.MacKeyTap(bindings, self._hotkey_emit, self._forward_pid)
+        except Exception as error:
+            self.key_tap = None
+            self.emit({"event": "error", "message": str(error)})
+            return
+        unsupported = [action for action, key in self.keys.items() if key and not mac_hotkeys.parse_binding(action, key)]
+        if unsupported:
+            self.emit({"event": "error", "message": "These hotkeys have no Mac key; set new ones in Settings → Controls: "
+                                                     + ", ".join(a.replace("_", " ") for a in unsupported)})
+
+    def _stop_keys(self):
+        if self.key_tap is not None:
+            self.key_tap.close()
+            self.key_tap = None
 
     # ---- input ---------------------------------------------------------
     def _input_mode(self, mode, message=""):
@@ -215,7 +264,14 @@ class MacService:
         if command == "set_multitask_overlay":
             self.enabled = bool(message.get("enabled", False))
             self.app_pid = int(message.get("app_pid", 0)) or self.app_pid
+            for action, field in (("toggle_multitask", "stop_key"), ("quick_swap", "swap_key"), ("layer_swap", "layer_swap_key")):
+                if field in message:
+                    self.keys[action] = str(message.get(field) or "")
             self._activate_input()
+            if self.enabled:
+                self._start_keys()
+            else:
+                self._stop_keys()
             return {"event": "overlay_changed", "enabled": self.enabled}
         if command == "linux_input":
             if self.enabled and self.input and self.input_mode == "directed" and self.target_info:
@@ -237,7 +293,13 @@ class MacService:
             self.selecting = bool(message.get("enabled", False))
             self._activate_input()
             return {"event": "command_applied"}
-        if command in ("screenshot_shortcuts", "linux_overlay_controls", "linux_overlay_window",
+        if command == "screenshot_shortcuts":
+            self.keys["screenshot_region"] = str(message.get("region", self.keys["screenshot_region"]) or "")
+            self.keys["screenshot_full"] = str(message.get("full", self.keys["screenshot_full"]) or "")
+            if self.enabled:
+                self._start_keys()
+            return {"event": "command_applied"}
+        if command in ("linux_overlay_controls", "linux_overlay_window",
                        "set_layer_layout", "set_overlay_control_region", "refresh_overlay_hit_test"):
             return {"event": "command_applied"}  # Java owns composition; never reorder real windows.
         if command in ("start_game_capture", "game_capture_status"):
@@ -247,6 +309,7 @@ class MacService:
         if command == "shutdown":
             self.closed.set()
             self.enabled = False
+            self._stop_keys()
             if self.input:
                 self.input.release_all()
             for path in list(self.captures):

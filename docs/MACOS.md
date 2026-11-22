@@ -14,15 +14,25 @@ hardware. Treat every feature as unverified until someone reports results.
   (directed input with `CGEventPostToPid`).
 - Data: `~/Library/Application Support/MultiMini/` (workspace, settings) and
   `.../MultiMini/screenshots`.
-- Input is "directed": while multitasking, the MultiMini overlay keeps focus and
-  forwards your clicks and keys to the selected window's app. Hotkeys (End,
-  Right Ctrl, Pause, Insert) work while the overlay is focused; there are no
-  system-wide hotkeys yet. Display sources are view-only.
+- Input is "directed": while multitasking, clicks on the MultiMini overlay are
+  forwarded to the selected window's app. Keys are caught by a system-wide
+  listener (`mac_hotkeys.py`, a Quartz event tap): MultiMini's hotkeys work in
+  any app, and other keys typed while MultiMini is in front go to the selected
+  app. Display sources are view-only.
+- Default Mac hotkeys (MacBooks have no End/Pause/Insert/Right Ctrl):
+  exit Control+Option+E, switch input Right Option, swap layers
+  Control+Option+L, screenshot Control+Option+S, region Control+Option+R.
+  Change them in Settings → Controls; Command can be part of a shortcut.
+- The window list includes windows on every desktop (Space).
+- Retina: sources are sized in real pixels (points × backing scale), and the
+  multitask overlay sits below the menu bar so the notch never covers it.
 
 ## Permissions (asked on first use)
 
 - **Screen & System Audio Recording**: needed for any capture and for window titles.
-- **Accessibility**: needed to forward input to the selected app.
+- **Accessibility** (and on newer macOS **Input Monitoring**): needed for hotkeys
+  and to forward input to the selected app. Turn MultiMini on in both lists,
+  then restart MultiMini.
 - Ad-hoc signed builds change signature every version, so macOS may ask again
   after updating.
 

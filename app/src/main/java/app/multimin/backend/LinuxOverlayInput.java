@@ -34,7 +34,8 @@ public final class LinuxOverlayInput {
             }
         });
         manager.addKeyEventDispatcher(e->{
-            if(!enabled.getAsBoolean() || !"directed".equals(backend.linuxInputMode())) {heldKeys.clear();return false;}
+            // macOS forwards keys from the backend's system-wide key listener instead.
+            if(PlatformSupport.isMac() || !enabled.getAsBoolean() || !"directed".equals(backend.linuxInputMode())) {heldKeys.clear();return false;}
             if(e.isConsumed() || (e.getID()!=KeyEvent.KEY_PRESSED && e.getID()!=KeyEvent.KEY_RELEASED))return false;
             int identity=e.getKeyCode()*8+e.getKeyLocation();
             Long symbol;

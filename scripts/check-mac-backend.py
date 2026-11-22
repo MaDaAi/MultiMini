@@ -21,6 +21,22 @@ for name in ("CGEventCreateMouseEvent", "CGEventPostToPid", "CGEventCreateKeyboa
              "CGEventSetIntegerValueField", "CGWindowListCopyWindowInfo", "CGGetActiveDisplayList",
              "CGBitmapContextCreate", "CGBitmapContextGetData"):
     assert hasattr(Quartz, name), name
+for name in ("CGEventTapCreate", "CGEventTapEnable", "CGEventMaskBit", "CGEventGetFlags", "CGEventGetIntegerValueField",
+             "CFMachPortCreateRunLoopSource", "CFRunLoopGetCurrent", "CFRunLoopAddSource", "CFRunLoopRun", "CFRunLoopStop",
+             "kCFRunLoopCommonModes", "kCGSessionEventTap", "kCGHeadInsertEventTap", "kCGEventTapOptionDefault",
+             "kCGKeyboardEventKeycode", "kCGKeyboardEventAutorepeat", "kCGEventKeyDown", "kCGEventKeyUp",
+             "kCGEventFlagsChanged", "kCGWindowListOptionAll"):
+    assert hasattr(Quartz, name), name
+from multimin_backend import mac_hotkeys  # noqa: E402
+assert Quartz.kCGEventKeyDown == mac_hotkeys.KEY_DOWN and Quartz.kCGEventFlagsChanged == mac_hotkeys.FLAGS_CHANGED
+assert Quartz.kCGEventFlagMaskControl == mac_hotkeys.CONTROL and Quartz.kCGEventFlagMaskCommand == mac_hotkeys.COMMAND
+from AppKit import NSWorkspace  # noqa: E402
+print("frontmost pid:", mac_hotkeys.frontmost_pid())
+try:
+    tap = mac_hotkeys.MacKeyTap([mac_hotkeys.parse_binding("quick_swap", "RIGHT_ALT")], print, lambda: 0)
+    print("key tap: created"); tap.close()
+except Exception as error:
+    print(f"key tap unavailable on this runner (expected without Accessibility): {error}")
 assert hasattr(ScreenCaptureKit, "SCShareableContent")
 print("SCScreenshotManager:", hasattr(ScreenCaptureKit, "SCScreenshotManager"))
 try:
