@@ -27,7 +27,16 @@ hardware. Treat every feature as unverified until someone reports results.
 - Retina: sources are sized in real pixels (points × backing scale), and the
   multitask overlay sits below the menu bar so the notch never covers it.
 
-## Permissions (asked on first use)
+## Permissions (guided window)
+
+macOS only lets the user turn these on. At launch, if anything is missing,
+MultiMini opens a "MultiMini needs permission" window (`showMacPermissions` in
+MainWindow, backend `mac_permissions.py`): each row has Allow, which shows
+macOS's own prompt and opens the exact System Settings list; the window polls
+and ticks rows off as switches are turned on, then offers "Restart MultiMini".
+It also opens when hotkeys or input fail for lack of permission, and from
+Settings → General → Mac permissions.
+
 
 - **Screen & System Audio Recording**: needed for any capture and for window titles.
 - **Accessibility** (and on newer macOS **Input Monitoring**): needed for hotkeys

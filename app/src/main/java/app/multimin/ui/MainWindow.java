@@ -287,7 +287,8 @@ public final class MainWindow extends JFrame {
             sourceList.repaint();preview.repaint();
         }));
         backend.setQuickSwapHandler(event -> SwingUtilities.invokeLater(() -> {
-            if("linux_target_lost".equals(event) && multitask) {setMultitask(false);backendStatus.setText("Input target capture stopped; choose or reconnect a source.");}
+            if("mac_permissions_needed".equals(event)) showMacPermissions();
+            else if("linux_target_lost".equals(event) && multitask) {setMultitask(false);backendStatus.setText("Input target capture stopped; choose or reconnect a source.");}
             else if (("linux_permission_on".equals(event)||"linux_permission_off".equals(event)) && multitask && multitaskWindow!=null) {
                 linuxPermissionDialog="linux_permission_on".equals(event);
                 if(linuxPermissionDialog){
@@ -1138,6 +1139,11 @@ public final class MainWindow extends JFrame {
         JButton updates = quietButton("Updates…");
         updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } }, () -> { shutdownServices(); dispose(); System.exit(0); }));
         fields.add(settingsRow("Updates", "Private downloads · preserves your workspace", updates));
+        if (app.multimin.backend.PlatformSupport.isMac()) {
+            JButton permissions = toolButton("Permissions…", "Check Screen Recording, Accessibility and Input Monitoring");
+            permissions.addActionListener(event -> showMacPermissions());
+            fields.add(settingsRow("Mac permissions", "Screen Recording, Accessibility, Input Monitoring", permissions));
+        }
         JButton legal = quietButton("Read policies"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
         fields.add(settingsRow("Publisher: Mansoor Alakoozai", "Canada · support through GitHub Issues", legal));
         fields.add(settingsGroup("Appearance"));
@@ -1789,6 +1795,7 @@ public final class MainWindow extends JFrame {
         backendStatus.setText(status);
         if (backend.isReady() && !restoredTargetsRequested) {
             restoredTargetsRequested = true;
+            if (app.multimin.backend.PlatformSupport.isMac()) checkMacPermissionsOnLaunch();
             backend.requestWindowList(targets -> SwingUtilities.invokeLater(() -> {
                 for(View view:views) for(int i=0;i<view.sources.size();i++) {
                     Source source=view.sources.get(i);
@@ -1811,6 +1818,90 @@ public final class MainWindow extends JFrame {
             }));
         }
     }); }
+
+    // ---- macOS permissions -------------------------------------------------
+    private JDialog macPermissionDialog;
+    private boolean macPermissionsChecked;
+    /** At launch: ask the backend once; open the guide only if something is missing. */
+    private void checkMacPermissionsOnLaunch() {
+        backend.setMacPermissionHandler((screen, accessibility, input) -> SwingUtilities.invokeLater(() -> {
+            if (macPermissionsChecked) return;
+            macPermissionsChecked = true;
+            backend.setMacPermissionHandler(null);
+            if (!screen || !accessibility) showMacPermissions();
+        }));
+        backend.send("{\"command\":\"mac_permissions\"}");
+    }
+    /**
+     * Guided window: macOS lets only the user switch these on, so each row shows
+     * the status, an Allow button that brings up macOS's prompt and the exact
+     * Settings list, and ticks itself off as soon as the switch is on.
+     */
+    void showMacPermissions() {
+        if (!app.multimin.backend.PlatformSupport.isMac()) return;
+        if (macPermissionDialog != null && macPermissionDialog.isDisplayable()) { macPermissionDialog.toFront(); return; }
+        JDialog dialog = dialog("MultiMini needs permission"); dialog.setModal(false); macPermissionDialog = dialog;
+        JPanel body = dialogBody();
+        JLabel intro = new JLabel("<html><b>macOS asks you to allow a few things once.</b><br>Click Allow, then turn on <b>MultiMini</b> in the list that opens. This window updates by itself.</html>");
+        intro.setForeground(palette.text); body.add(intro, BorderLayout.NORTH);
+        JPanel rows = transparent(new GridLayout(0, 1, 0, 10));
+        String[][] items = {
+            {"screen", "Screen Recording", "Show the windows and displays you add"},
+            {"accessibility", "Accessibility", "Hotkeys, and clicks/keys reaching the app you control"},
+            {"input", "Input Monitoring", "Optional: only if hotkeys still don't work"}};
+        java.util.Map<String, JLabel> states = new java.util.HashMap<>();
+        java.util.Map<String, JButton> buttons = new java.util.HashMap<>();
+        for (String[] item : items) {
+            JPanel row = transparent(new BorderLayout(10, 0));
+            JLabel state = new JLabel("…"); state.setFont(state.getFont().deriveFont(Font.BOLD, 16f)); state.setPreferredSize(new Dimension(22, 22));
+            JLabel text = new JLabel("<html><b>" + item[1] + "</b><br><span style='font-size:90%'>" + item[2] + "</span></html>"); text.setForeground(palette.text);
+            JButton allow = toolButton("Allow", "Open the macOS prompt and Settings for " + item[1]);
+            allow.addActionListener(event -> backend.send("{\"command\":\"mac_request_permission\",\"kind\":\"" + item[0] + "\"}"));
+            row.add(state, BorderLayout.WEST); row.add(text, BorderLayout.CENTER); row.add(allow, BorderLayout.EAST);
+            rows.add(row); states.put(item[0], state); buttons.put(item[0], allow);
+        }
+        body.add(rows, BorderLayout.CENTER);
+        JLabel hint = muted("Screen Recording takes effect after a restart.");
+        JButton later = toolButton("Later", "Close this window");
+        JButton restart = primaryButton("Restart MultiMini");
+        restart.setEnabled(false);
+        later.addActionListener(event -> dialog.dispose());
+        restart.addActionListener(event -> restartMacApp());
+        JPanel actions = transparent(new BorderLayout(8, 0)); actions.add(hint, BorderLayout.CENTER);
+        JPanel buttonsRow = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); buttonsRow.add(later); buttonsRow.add(restart); actions.add(buttonsRow, BorderLayout.EAST);
+        body.add(actions, BorderLayout.SOUTH);
+        boolean[] firstStatus = {true}; boolean[] startedScreen = {false};
+        backend.setMacPermissionHandler((screen, accessibility, input) -> SwingUtilities.invokeLater(() -> {
+            if (!dialog.isDisplayable()) return;
+            if (firstStatus[0]) { firstStatus[0] = false; startedScreen[0] = screen; }
+            boolean[] granted = {screen, accessibility, input};
+            for (int i = 0; i < items.length; i++) {
+                JLabel state = states.get(items[i][0]);
+                state.setText(granted[i] ? "✓" : "✕");
+                state.setForeground(granted[i] ? new Color(64, 190, 120) : new Color(230, 90, 90));
+                buttons.get(items[i][0]).setVisible(!granted[i]);
+            }
+            boolean ready = screen && accessibility;
+            restart.setEnabled(ready);
+            hint.setText(ready ? (startedScreen[0] ? "All set. You can close this window." : "All set. Restart once so screen capture can start.")
+                : "Screen Recording takes effect after a restart.");
+        }));
+        javax.swing.Timer poll = new javax.swing.Timer(1500, event -> backend.send("{\"command\":\"mac_permissions\"}"));
+        poll.setInitialDelay(0); poll.start();
+        dialog.addWindowListener(new WindowAdapter() { @Override public void windowClosed(WindowEvent event) { poll.stop(); backend.setMacPermissionHandler(null); } });
+        dialog.setContentPane(body); dialog.setSize(520, 330); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+    }
+    /** Save, start a fresh copy of the app bundle after this one exits, and quit. */
+    private void restartMacApp() {
+        try {
+            java.nio.file.Path bundle = MacUpdater.appBundle();
+            saveWorkspace();
+            new ProcessBuilder("/bin/sh", "-c", "sleep 1; /usr/bin/open -n \"$0\"", bundle.toString()).start();
+            shutdownServices(); dispose(); System.exit(0);
+        } catch (Exception error) {
+            showNotice("Restart MultiMini", "Quit MultiMini (Command+Q) and open it again so the new permissions take effect.");
+        }
+    }
 
     private void showNotice(String title, String message) {
         JDialog dialog = dialog(title); JPanel body = dialogBody();

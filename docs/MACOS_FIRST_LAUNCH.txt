@@ -8,10 +8,10 @@ MultiMini for Mac - untested preview
      choose Open, then Open again.
    This happens because this preview is not signed with a paid Apple
    Developer ID. You only need to do it once per version.
-3. When asked, allow MultiMini in:
-   - Privacy & Security > Screen & System Audio Recording (to capture windows)
-   - Privacy & Security > Accessibility (to send clicks/keys to the selected app)
-   Quit and reopen MultiMini after granting them.
+3. MultiMini then shows a "MultiMini needs permission" window. Click Allow on
+   each line and turn on MultiMini in the list macOS opens. The window ticks
+   each one off by itself; click "Restart MultiMini" at the end. You can reopen
+   it any time from Settings > General > Mac permissions.
 
 If macOS says the app is "damaged", run this once in Terminal, then open it:
    xattr -dr com.apple.quarantine /Applications/MultiMini.app

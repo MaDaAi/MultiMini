@@ -31,6 +31,10 @@ from multimin_backend import mac_hotkeys  # noqa: E402
 assert Quartz.kCGEventKeyDown == mac_hotkeys.KEY_DOWN and Quartz.kCGEventFlagsChanged == mac_hotkeys.FLAGS_CHANGED
 assert Quartz.kCGEventFlagMaskControl == mac_hotkeys.CONTROL and Quartz.kCGEventFlagMaskCommand == mac_hotkeys.COMMAND
 from AppKit import NSWorkspace  # noqa: E402
+from multimin_backend import mac_permissions  # noqa: E402
+for name in ("CGPreflightScreenCaptureAccess", "CGRequestScreenCaptureAccess", "CGPreflightListenEventAccess", "CGRequestListenEventAccess"):
+    print(name, "available" if hasattr(Quartz, name) else "MISSING")
+print("permissions:", mac_permissions.status())
 print("frontmost pid:", mac_hotkeys.frontmost_pid())
 try:
     tap = mac_hotkeys.MacKeyTap([mac_hotkeys.parse_binding("quick_swap", "RIGHT_ALT")], print, lambda: 0)

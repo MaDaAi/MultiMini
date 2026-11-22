@@ -25,6 +25,10 @@ public final class PythonBridge implements AutoCloseable {
     private volatile Consumer<String> captureStoppedHandler=ignored->{};
     private volatile java.util.function.BiConsumer<String,String> restoreTokenHandler=(ignoredPath,ignoredToken)->{};
     public void setRestoreTokenHandler(java.util.function.BiConsumer<String,String> handler){restoreTokenHandler=handler;}
+    /** macOS privacy permission status from the backend. */
+    public interface MacPermissionListener { void update(boolean screen, boolean accessibility, boolean input); }
+    private volatile MacPermissionListener macPermissionHandler=(s,a,i)->{};
+    public void setMacPermissionHandler(MacPermissionListener handler){macPermissionHandler=handler==null?(s,a,i)->{}:handler;}
     /** Flatpak in-app update events: state (progress/done/none/failed), percent, message. */
     public interface FlatpakUpdateListener { void update(String state, int progress, String message); }
     private volatile FlatpakUpdateListener flatpakUpdateHandler=(state,progress,message)->{};
@@ -92,7 +96,11 @@ public final class PythonBridge implements AutoCloseable {
                         status.accept(PlatformSupport.isPortable() ? PlatformSupport.osLabel() + " capture ready · choose a source to share" : "Input passthrough ready · live display active");
                         flushPendingCommands();
                         while ((line = reader.readLine()) != null) {
-                            if(line.contains("\"event\":\"flatpak_update\"")) {
+                            if(line.contains("\"event\":\"mac_permissions\"")) {
+                                macPermissionHandler.update(line.contains("\"screen\":true"),line.contains("\"accessibility\":true"),line.contains("\"input\":true"));
+                            }
+                            else if(line.contains("\"event\":\"mac_permissions_needed\"")) quickSwapHandler.accept("mac_permissions_needed");
+                            else if(line.contains("\"event\":\"flatpak_update\"")) {
                                 Matcher state=Pattern.compile("\"state\":\"([a-z]+)\"").matcher(line);
                                 Matcher progress=Pattern.compile("\"progress\":(\\d+)").matcher(line);
                                 Matcher text=Pattern.compile("\"message64\":\"([^\"]*)\"").matcher(line);

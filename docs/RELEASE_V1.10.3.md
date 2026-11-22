@@ -2,7 +2,7 @@
 - Mac: hotkeys and typing now work. MacBooks have no End, Pause or Insert keys, so the Mac version has its own defaults: Control+Option+E exits, Right Option switches input, Control+Option+L swaps layers, Control+Option+S takes a screenshot. You can change them in Settings → Controls.
 - Mac: windows on your other desktops (the ones you swipe between) now show up in the window list.
 - Mac: sources are no longer zoomed in on Retina screens, and the full-screen view stays clear of the menu bar and notch.
-- Mac needs Accessibility (and Input Monitoring) permission for keys: System Settings → Privacy & Security, turn on MultiMini, then restart it.
+- Mac: no more hunting through System Settings. MultiMini shows a permissions window that opens the right settings page for each permission, ticks them off as you allow them, and restarts itself when you're done. (macOS only lets you flip the switches yourself.)
 - Windows and Linux: no changes.
 
 ## Detailed

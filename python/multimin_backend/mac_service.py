@@ -138,8 +138,8 @@ class MacService:
             if not self.prompted_accessibility:
                 self.prompted_accessibility = True
                 mac_input.request_accessibility()
-            self.emit({"event": "error", "message": "Hotkeys need Accessibility: System Settings → Privacy & Security → "
-                                                     "Accessibility → turn on MultiMini, then restart MultiMini."})
+            self.emit({"event": "error", "message": "Hotkeys need the Accessibility permission."})
+            self.emit({"event": "mac_permissions_needed"})  # opens the guided permissions window
             return
         bindings = [b for b in (mac_hotkeys.parse_binding(action, key) for action, key in self.keys.items()) if b]
         try:
@@ -175,7 +175,8 @@ class MacService:
             if not self.prompted_accessibility:
                 self.prompted_accessibility = True
                 mac_input.request_accessibility()
-            self._input_mode("unavailable", "Allow MultiMini in System Settings → Privacy & Security → Accessibility, then re-enter multitasking")
+            self.emit({"event": "mac_permissions_needed"})
+            self._input_mode("unavailable", "Input needs the Accessibility permission")
             return
         try:
             from .mac_capture import window_info
@@ -286,6 +287,13 @@ class MacService:
             return {"event": "input_released"}
         if command == "linux_check_input":
             return {"event": "input_checked"}
+        if command == "mac_permissions":
+            from . import mac_permissions
+            return dict(event="mac_permissions", **mac_permissions.status())
+        if command == "mac_request_permission":
+            from . import mac_permissions
+            mac_permissions.request(str(message.get("kind", "")))
+            return dict(event="mac_permissions", **mac_permissions.status())
         if command == "choose_image":
             threading.Thread(target=self._choose_image, name="multimini-file-picker", daemon=True).start()
             return {"event": "file_picker_opened"}
