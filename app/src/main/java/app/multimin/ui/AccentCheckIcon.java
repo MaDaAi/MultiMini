@@ -14,9 +14,8 @@ final class AccentCheckIcon implements Icon {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         boolean selected = component instanceof AbstractButton && ((AbstractButton) component).isSelected();
         g.setColor(selected ? palette.accent : palette.controlSurface());
-        g.fillRoundRect(x + 1, y + 1, 14, 14, 4, 4);
-        g.setColor(palette.controlBorder());
-        g.drawRoundRect(x + 1, y + 1, 14, 14, 4, 4);
+        g.fillRoundRect(x + 1, y + 1, 15, 15, 6, 6);
+        if (!selected) { g.setColor(palette.controlBorder()); g.drawRoundRect(x + 1, y + 1, 14, 14, 6, 6); }
         if (selected) {
             g.setColor(palette.selectionText()); g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             g.drawLine(x + 4, y + 8, x + 7, y + 11); g.drawLine(x + 7, y + 11, x + 12, y + 5);

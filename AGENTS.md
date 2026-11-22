@@ -36,6 +36,7 @@ files. Linux platform code lives in `linux_service.py`, `linux_portal.py`,
 PlatformSupport and LinuxOverlayInput. `linux_xshm.py` is the fast MIT-SHM X11 reader (falls back to Python Xlib).
 macOS (untested preview) lives in `mac_service.py`, `mac_capture.py`, `mac_input.py`; see docs/MACOS.md.
 `PlatformSupport.isPortable()` (Linux or macOS) gates the shared non-Windows Java paths.
+UI look (1.11): `Theme.java` (fonts, radii, shadows), `Palette.java` tokens, `ModernButton`, `WindowPicker` (window/display cards; backend `thumbnails.py` command `window_thumbnails`), `AppIcons` (Windows program icons). `RedesignShots` (test sources) renders the configure UI to PNGs with a throwaway profile for visual review.
 
 ```
 ./scripts/build-linux.sh

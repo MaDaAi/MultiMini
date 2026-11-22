@@ -326,7 +326,7 @@ public final class PreviewPanel extends JPanel {
     private void paintComposition(Graphics graphics) {
         long paintStarted = System.nanoTime();
         frameTextures.retain(view.sources);
-        if (!locked) setBackground(palette.background);
+        if (!locked) setBackground(palette.canvas());
         super.paintComponent(graphics);
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -335,13 +335,20 @@ public final class PreviewPanel extends JPanel {
         int x = locked ? 0 : (getWidth() - width) / 2, y = locked ? 0 : (getHeight() - height) / 2;
         canvas = new Rectangle(x, y, width, height);
         windowSurfaces.update(this,view,canvas,locked && nativePresentationAllowed,this::sourceBoundsInPanel);
-        if (!locked) { g.setColor(Color.BLACK); g.fillRect(x, y, width, height); }
+        if (!locked) {
+            // Configure-mode stage: soft shadow, rounded frame and a faint grid.
+            Theme.shadow(g, x, y, width, height, 10, 14, Color.BLACK, palette.isLight() ? 70 : 150);
+            g.setColor(new Color(9, 10, 13)); g.fill(Theme.round(x, y, width, height, 10));
+            g.setColor(new Color(255, 255, 255, 9));
+            int step = Math.max(18, width / 48);
+            for (int gx = x + step; gx < x + width; gx += step) for (int gy = y + step; gy < y + height; gy += step) g.fillRect(gx, gy, 1, 1);
+        }
         else if (!hasVisibleDisplaySource()) {
             g.setColor(Color.BLACK); g.fillRect(0, 0, getWidth(), getHeight());
         }
 
         Graphics2D layers = (Graphics2D) g.create();
-        layers.clip(canvas);
+        if (locked) layers.clip(canvas); else layers.clip(Theme.round(x, y, width, height, 10));
         for (int index = view.sources.size() - 1; index >= 0; index--) {
             Source source = view.sources.get(index);
             if (!isSourceRendered(index)) continue;
@@ -351,9 +358,9 @@ public final class PreviewPanel extends JPanel {
         layers.dispose();
 
         if (!locked) {
-            g.setColor(palette.line);
+            g.setColor(palette.isLight() ? new Color(0, 0, 0, 40) : new Color(255, 255, 255, 26));
             g.setStroke(new BasicStroke(1f));
-            g.drawRect(x, y, width - 1, height - 1);
+            g.draw(Theme.round(x + 0.5f, y + 0.5f, width - 1, height - 1, 10));
         }
         if(!locked&&(guideX>=0||guideY>=0)){g.setColor(palette.accent);g.setStroke(new BasicStroke(1f));if(guideX>=0)g.drawLine(guideX,canvas.y,guideX,canvas.y+canvas.height);if(guideY>=0)g.drawLine(canvas.x,guideY,canvas.x+canvas.width,guideY);}
         g.dispose();
@@ -419,6 +426,21 @@ public final class PreviewPanel extends JPanel {
                 g.setColor(new Color(188, 196, 202));
                 g.fillRoundRect(bounds.x + inset, bounds.y + inset, bounds.width - inset * 2, Math.max(20, bounds.height / 11), 8, 8);
             }
+        } else if (!locked) {
+            // Configure-mode placeholder: tinted card with a centred type badge.
+            Color kind = SourceCellRenderer.kindColor(source.kind);
+            g.setPaint(new GradientPaint(bounds.x, bounds.y, Palette.blend(new Color(22, 25, 31), kind, 0.20f), bounds.x, bounds.y + bounds.height, Palette.blend(new Color(16, 18, 23), kind, 0.08f)));
+            g.fill(Theme.round(bounds.x, bounds.y, bounds.width, bounds.height, 8));
+            Graphics2D stripes = (Graphics2D) g.create(); stripes.clip(bounds); stripes.setColor(new Color(255, 255, 255, 7)); stripes.setStroke(new BasicStroke(6f));
+            for (int d = -bounds.height; d < bounds.width; d += 22) stripes.drawLine(bounds.x + d, bounds.y + bounds.height, bounds.x + d + bounds.height, bounds.y);
+            stripes.dispose();
+            int cx = bounds.x + bounds.width / 2, cy = bounds.y + bounds.height / 2;
+            g.setColor(Palette.blend(new Color(20, 23, 28), kind, 0.35f)); g.fillOval(cx - 22, cy - 34, 44, 44);
+            new VectorIcon(VectorIcon.forSource(source.kind), 20, Color.WHITE).paintIcon(this, g, cx - 10, cy - 22);
+            g.setFont(Theme.semibold(13f)); g.setColor(new Color(236, 239, 244));
+            FontMetrics m = g.getFontMetrics(); String label = source.name;
+            g.drawString(label, cx - m.stringWidth(label) / 2, cy + 28);
+            if (guiHelpers) { g.setFont(Theme.regular(11f)); g.setColor(new Color(160, 168, 182)); m = g.getFontMetrics(); String sub = source.kind.label + " · waiting for frames"; g.drawString(sub, cx - m.stringWidth(sub) / 2, cy + 46); }
         } else {
             new VectorIcon(VectorIcon.forSource(source.kind), 14, Color.WHITE).paintIcon(this, g, bounds.x + 16, bounds.y + 15);
             g.setColor(Color.WHITE); g.setFont(getFont().deriveFont(Font.BOLD, 12f));
@@ -428,11 +450,15 @@ public final class PreviewPanel extends JPanel {
         }
         g.setComposite(AlphaComposite.SrcOver);
         if (!locked && index == selectedIndex) {
-            g.setColor(palette.accent); g.setStroke(new BasicStroke(2f)); g.drawRect(bounds.x, bounds.y, bounds.width, bounds.height);
-            int size = 8; int cx = bounds.x + bounds.width / 2, cy = bounds.y + bounds.height / 2;
+            g.setColor(Theme.withAlpha(palette.accent, 40)); g.setStroke(new BasicStroke(6f)); g.drawRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            g.setColor(palette.accent); g.setStroke(new BasicStroke(1.6f)); g.drawRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            int size = 9; int cx = bounds.x + bounds.width / 2, cy = bounds.y + bounds.height / 2;
             int[][] points = {{bounds.x, bounds.y}, {cx, bounds.y}, {bounds.x + bounds.width, bounds.y}, {bounds.x + bounds.width, cy},
                 {bounds.x + bounds.width, bounds.y + bounds.height}, {cx, bounds.y + bounds.height}, {bounds.x, bounds.y + bounds.height}, {bounds.x, cy}};
-            for (int[] point : points) { g.fillOval(point[0] - size / 2, point[1] - size / 2, size, size); }
+            for (int[] point : points) {
+                g.setColor(Color.WHITE); g.fill(Theme.round(point[0] - size / 2f, point[1] - size / 2f, size, size, 3));
+                g.setColor(palette.accent); g.setStroke(new BasicStroke(1.5f)); g.draw(Theme.round(point[0] - size / 2f, point[1] - size / 2f, size, size, 3));
+            }
         }
     }
 
