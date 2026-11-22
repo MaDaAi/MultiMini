@@ -181,14 +181,24 @@ def windows_process_path(hwnd):
 
 # ---- macOS -----------------------------------------------------------------
 def mac_thumbnail(window_id, max_width=320):
+    """Quartz still image when available; ScreenCaptureKit on macOS 15+ where it is not."""
     try:
         import Quartz as Q
     except Exception:
         return None
-    image = Q.CGWindowListCreateImage(Q.CGRectNull, Q.kCGWindowListOptionIncludingWindow, int(window_id),
-                                      Q.kCGWindowImageBoundsIgnoreFraming | Q.kCGWindowImageNominalResolution)
-    if image is None:
-        return None
+    image = None
+    try:
+        image = Q.CGWindowListCreateImage(Q.CGRectNull, Q.kCGWindowListOptionIncludingWindow, int(window_id),
+                                          Q.kCGWindowImageBoundsIgnoreFraming | Q.kCGWindowImageNominalResolution)
+    except Exception:
+        image = None
+    if image is None or int(Q.CGImageGetWidth(image)) <= 0:
+        try:
+            from .mac_capture import WindowGrabber
+            width, height, pixels = WindowGrabber(int(window_id)).grab()
+            return encode_png(*downscale_bgra(width, height, pixels, max_width))
+        except Exception:
+            return None
     width, height = int(Q.CGImageGetWidth(image)), int(Q.CGImageGetHeight(image))
     if width <= 0 or height <= 0:
         return None

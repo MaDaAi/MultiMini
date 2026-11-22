@@ -17,7 +17,7 @@ final class Theme {
         catch (Exception error) { families = new String[0]; }
         java.util.Set<String> available = new java.util.HashSet<>(java.util.Arrays.asList(families));
         String chosen = Font.DIALOG;
-        for (String candidate : new String[]{"Segoe UI", "SF Pro Text", ".AppleSystemUIFont", "Inter", "Cantarell", "Noto Sans", "Ubuntu", "DejaVu Sans"})
+        for (String candidate : new String[]{"Segoe UI", "SF Pro Text", ".AppleSystemUIFont", "Helvetica Neue", "Inter", "Cantarell", "Noto Sans", "Ubuntu", "DejaVu Sans"})
             if (available.contains(candidate)) { chosen = candidate; break; }
         FAMILY = chosen;
         SEMIBOLD = available.contains("Segoe UI Semibold") && chosen.equals("Segoe UI") ? "Segoe UI Semibold" : null;
