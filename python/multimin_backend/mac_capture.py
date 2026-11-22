@@ -187,14 +187,20 @@ def window_info(window_id):
 
 
 def list_windows(own_pid=0):
-    """Visible normal-layer windows as rows the Java chooser understands."""
+    """Normal-layer windows on every desktop (Space), as rows the Java chooser understands.
+
+    OnScreenOnly listed only the current Space, so windows on other desktops
+    were missing. ScreenCaptureKit captures windows on other Spaces too.
+    """
     import base64
     Q = _quartz()
-    options = Q.kCGWindowListOptionOnScreenOnly | Q.kCGWindowListExcludeDesktopElements
+    options = Q.kCGWindowListOptionAll | Q.kCGWindowListExcludeDesktopElements
     rows = []
     for item in Q.CGWindowListCopyWindowInfo(options, Q.kCGNullWindowID) or []:
-        if int(item.get("kCGWindowLayer", 1)) != 0:
+        if int(item.get("kCGWindowLayer", 1)) != 0 or float(item.get("kCGWindowAlpha", 1)) <= 0:
             continue
+        if not item.get("kCGWindowName") and not item.get("kCGWindowIsOnscreen"):
+            continue  # untitled off-screen helpers (menus, hidden panels)
         pid = int(item.get("kCGWindowOwnerPID", 0))
         if own_pid and pid == own_pid:
             continue

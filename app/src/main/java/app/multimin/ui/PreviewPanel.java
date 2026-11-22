@@ -142,8 +142,12 @@ public final class PreviewPanel extends JPanel {
         int fitWidth = canvas.width, fitHeight = canvas.height;
         if ((source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME) && sourceWidth>0 && sourceHeight>0) {
             DisplayMode display = referenceDisplay();
-            fitWidth = Math.max(1, (int) Math.round((double) sourceWidth * canvas.width / Math.max(1, display.getWidth())));
-            fitHeight = Math.max(1, (int) Math.round((double) sourceHeight * canvas.height / Math.max(1, display.getHeight())));
+            // Captures are physical pixels. Windows/Linux report the display in
+            // pixels too, but macOS reports Retina displays in points, which made
+            // every Mac source twice too large ("zoomed in").
+            double displayScale = macBackingScale();
+            fitWidth = Math.max(1, (int) Math.round((double) sourceWidth * canvas.width / Math.max(1, display.getWidth() * displayScale)));
+            fitHeight = Math.max(1, (int) Math.round((double) sourceHeight * canvas.height / Math.max(1, display.getHeight() * displayScale)));
         } else if ((double) fitWidth / Math.max(1, fitHeight) > aspect) fitWidth = (int) (fitHeight * aspect);
         else fitHeight = (int) (fitWidth / aspect);
         int width = Math.max(20, fitWidth * (source.scaleX < 0 ? source.scale : source.scaleX) / 100);
@@ -152,6 +156,15 @@ public final class PreviewPanel extends JPanel {
         int y = canvas.y + (canvas.height - height) * source.y / 100;
         return new Rectangle(x, y, width, height);
     }
+
+    /** Retina factor on macOS (DisplayMode is in points there); 1 elsewhere. */
+    static double macBackingScale(GraphicsConfiguration configuration) {
+        if (!app.multimin.backend.PlatformSupport.isMac()) return 1.0;
+        GraphicsConfiguration config = configuration != null ? configuration
+            : GraphicsEnvironment.isHeadless() ? null : GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDefaultConfiguration();
+        return config == null ? 1.0 : Math.max(1.0, config.getDefaultTransform().getScaleX());
+    }
+    private double macBackingScale() { return macBackingScale(getGraphicsConfiguration()); }
 
     private DisplayMode referenceDisplay() {
         GraphicsConfiguration configuration = getGraphicsConfiguration();

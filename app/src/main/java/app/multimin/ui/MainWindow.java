@@ -78,12 +78,12 @@ public final class MainWindow extends JFrame {
         !preferences.getBoolean("captureFpsChoiceV2", false) && preferences.getInt("captureFps", 0) == 60
             ? 0 : preferences.getInt("captureFps", 0)));
     private int revealCornerIndex = Math.clamp(preferences.getInt("revealCorner", 0), 0, 4);
-    private String stopKeyBinding = preferences.getString("stopKey", "END");
+    private String stopKeyBinding = platformKey(preferences.getString("stopKey", "END"));
     private String pendingWindowSourceName;
     private boolean pendingWindowNameManual;
     private String pendingImageName;
-    private String swapKeyBinding = preferences.getString("swapInputKey", "RIGHT_CTRL");
-    private String layerSwapKeyBinding = preferences.getString("swapLayersKey", "PAUSE");
+    private String swapKeyBinding = platformKey(preferences.getString("swapInputKey", "RIGHT_CTRL"));
+    private String layerSwapKeyBinding = platformKey(preferences.getString("swapLayersKey", "PAUSE"));
     private boolean recordingLayerSwapKey;
     private JButton layerSwapKeyButton;
     private boolean recordingSwapKey;
@@ -97,7 +97,22 @@ public final class MainWindow extends JFrame {
     private JButton multitaskExitButton;
     private JLabel multitaskTargetLabel;
     private javax.swing.Timer inputNoticeTimer;
-    private String screenshotKey=preferences.getString("screenshotKey","INSERT"), regionScreenshotKey=preferences.getString("regionScreenshotKey","CTRL+SHIFT+F12");
+    /**
+     * MacBook keyboards have no End, Pause, Insert or Right Ctrl, so the Windows
+     * defaults map to Mac-friendly ones. Bindings the user recorded are kept.
+     */
+    static String platformKey(String binding) {
+        if (!app.multimin.backend.PlatformSupport.isMac() || binding == null) return binding;
+        return switch (binding) {
+            case "END" -> "CTRL+ALT+E";
+            case "RIGHT_CTRL" -> "RIGHT_ALT";
+            case "PAUSE" -> "CTRL+ALT+L";
+            case "INSERT" -> "CTRL+ALT+S";
+            case "CTRL+SHIFT+F12" -> "CTRL+ALT+R";
+            default -> binding;
+        };
+    }
+    private String screenshotKey=platformKey(preferences.getString("screenshotKey","INSERT")), regionScreenshotKey=platformKey(preferences.getString("regionScreenshotKey","CTRL+SHIFT+F12"));
     private ScreenshotSelection screenshotSelection;
     { if("SHIFT+INSERT".equals(regionScreenshotKey)){regionScreenshotKey="CTRL+SHIFT+F12";preferences.putString("regionScreenshotKey",regionScreenshotKey);} }
     private void configureScreenshotKeys(){backend.send("{\"command\":\"screenshot_shortcuts\",\"full\":\""+screenshotKey+"\",\"region\":\""+regionScreenshotKey+"\"}");}
@@ -272,7 +287,8 @@ public final class MainWindow extends JFrame {
             sourceList.repaint();preview.repaint();
         }));
         backend.setQuickSwapHandler(event -> SwingUtilities.invokeLater(() -> {
-            if("linux_target_lost".equals(event) && multitask) {setMultitask(false);backendStatus.setText("Input target capture stopped; choose or reconnect a source.");}
+            if("mac_permissions_needed".equals(event)) showMacPermissions();
+            else if("linux_target_lost".equals(event) && multitask) {setMultitask(false);backendStatus.setText("Input target capture stopped; choose or reconnect a source.");}
             else if (("linux_permission_on".equals(event)||"linux_permission_off".equals(event)) && multitask && multitaskWindow!=null) {
                 linuxPermissionDialog="linux_permission_on".equals(event);
                 if(linuxPermissionDialog){
@@ -685,15 +701,49 @@ public final class MainWindow extends JFrame {
     private String keyBindingForEvent(KeyEvent event) {
         int code = event.getKeyCode();
         if (code == KeyEvent.VK_CONTROL && event.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT) return "RIGHT_CTRL";
+        boolean mac = app.multimin.backend.PlatformSupport.isMac();
+        // Mac keyboards: Right Option is the natural single-key swap.
+        if (mac && code == KeyEvent.VK_ALT && event.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT) return "RIGHT_ALT";
         if (code == KeyEvent.VK_CONTROL || code == KeyEvent.VK_SHIFT || code == KeyEvent.VK_ALT || code == KeyEvent.VK_ALT_GRAPH || code == KeyEvent.VK_META) return null;
-        String key = KeyEvent.getKeyText(code).toUpperCase(java.util.Locale.ROOT).replace(' ', '_');
+        // macOS getKeyText returns symbols (e.g. arrows, ⎋); use stable key names there.
+        String key = mac ? macKeyName(code) : KeyEvent.getKeyText(code).toUpperCase(java.util.Locale.ROOT).replace(' ', '_');
+        if (key == null) return null;
         StringBuilder binding = new StringBuilder();
         if ((event.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) binding.append("CTRL+");
         if ((event.getModifiersEx() & KeyEvent.SHIFT_DOWN_MASK) != 0) binding.append("SHIFT+");
         if ((event.getModifiersEx() & KeyEvent.ALT_DOWN_MASK) != 0) binding.append("ALT+");
+        if (mac && (event.getModifiersEx() & KeyEvent.META_DOWN_MASK) != 0) binding.append("CMD+");
         return binding.append(key).toString();
     }
-    private String prettyKeyBinding(String binding) { return "RIGHT_CTRL".equals(binding) ? "Right Ctrl" : binding.replace("_", " ").replace("+", " + "); }
+    /** Stable names for macOS key codes, matching mac_hotkeys.KEYCODES. */
+    static String macKeyName(int code) {
+        if (code >= KeyEvent.VK_A && code <= KeyEvent.VK_Z) return String.valueOf((char) code);
+        if (code >= KeyEvent.VK_0 && code <= KeyEvent.VK_9) return String.valueOf((char) code);
+        if (code >= KeyEvent.VK_F1 && code <= KeyEvent.VK_F12) return "F" + (code - KeyEvent.VK_F1 + 1);
+        if (code >= KeyEvent.VK_F13 && code <= KeyEvent.VK_F20) return "F" + (code - KeyEvent.VK_F13 + 13);
+        return switch (code) {
+            case KeyEvent.VK_END -> "END"; case KeyEvent.VK_HOME -> "HOME";
+            case KeyEvent.VK_PAGE_UP -> "PAGE_UP"; case KeyEvent.VK_PAGE_DOWN -> "PAGE_DOWN";
+            case KeyEvent.VK_LEFT -> "LEFT"; case KeyEvent.VK_RIGHT -> "RIGHT"; case KeyEvent.VK_UP -> "UP"; case KeyEvent.VK_DOWN -> "DOWN";
+            case KeyEvent.VK_ESCAPE -> "ESCAPE"; case KeyEvent.VK_ENTER -> "ENTER"; case KeyEvent.VK_TAB -> "TAB";
+            case KeyEvent.VK_SPACE -> "SPACE"; case KeyEvent.VK_BACK_SPACE -> "BACK_SPACE"; case KeyEvent.VK_DELETE -> "DELETE";
+            case KeyEvent.VK_HELP, KeyEvent.VK_INSERT -> "INSERT"; case KeyEvent.VK_PAUSE -> "PAUSE";
+            case KeyEvent.VK_MINUS -> "MINUS"; case KeyEvent.VK_EQUALS -> "EQUALS"; case KeyEvent.VK_COMMA -> "COMMA";
+            case KeyEvent.VK_PERIOD -> "PERIOD"; case KeyEvent.VK_SLASH -> "SLASH"; case KeyEvent.VK_SEMICOLON -> "SEMICOLON";
+            case KeyEvent.VK_QUOTE -> "QUOTE"; case KeyEvent.VK_OPEN_BRACKET -> "OPEN_BRACKET"; case KeyEvent.VK_CLOSE_BRACKET -> "CLOSE_BRACKET";
+            case KeyEvent.VK_BACK_SLASH -> "BACK_SLASH"; case KeyEvent.VK_BACK_QUOTE -> "BACK_QUOTE";
+            default -> null;
+        };
+    }
+    private String prettyKeyBinding(String binding) {
+        if ("RIGHT_CTRL".equals(binding)) return "Right Ctrl";
+        if (app.multimin.backend.PlatformSupport.isMac()) {
+            if ("RIGHT_ALT".equals(binding)) return "Right Option";
+            return binding.replace("CTRL+", "Control + ").replace("ALT+", "Option + ").replace("CMD+", "Command + ")
+                .replace("SHIFT+", "Shift + ").replace("_", " ");
+        }
+        return binding.replace("_", " ").replace("+", " + ");
+    }
     private void displayFrameArrived(int deviceIndex, java.awt.image.BufferedImage frame) {
         pendingDisplayFrames.put(deviceIndex, frame);
         queueDisplayFrameUpdate();
@@ -1089,6 +1139,11 @@ public final class MainWindow extends JFrame {
         JButton updates = quietButton("Updates…");
         updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } }, () -> { shutdownServices(); dispose(); System.exit(0); }));
         fields.add(settingsRow("Updates", "Private downloads · preserves your workspace", updates));
+        if (app.multimin.backend.PlatformSupport.isMac()) {
+            JButton permissions = toolButton("Permissions…", "Check Screen Recording, Accessibility and Input Monitoring");
+            permissions.addActionListener(event -> showMacPermissions());
+            fields.add(settingsRow("Mac permissions", "Screen Recording, Accessibility, Input Monitoring", permissions));
+        }
         JButton legal = quietButton("Read policies"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
         fields.add(settingsRow("Publisher: Mansoor Alakoozai", "Canada · support through GitHub Issues", legal));
         fields.add(settingsGroup("Appearance"));
@@ -1506,6 +1561,13 @@ public final class MainWindow extends JFrame {
                 ? Color.BLACK : new Color(0, 0, 0, 0));
             multitaskWindow.setContentPane(preview);
             Rectangle screenBounds = device.getDefaultConfiguration().getBounds();
+            if (app.multimin.backend.PlatformSupport.isMac()) {
+                // Keep the overlay below the menu bar (and the camera notch on
+                // MacBooks); macOS would otherwise push or clip a full-screen window.
+                Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(device.getDefaultConfiguration());
+                screenBounds = new Rectangle(screenBounds.x, screenBounds.y + insets.top, screenBounds.width,
+                    Math.max(1, screenBounds.height - insets.top));
+            }
             multitaskWindow.setBounds(screenBounds);
             multitaskWindow.setVisible(true);
             if(app.multimin.backend.PlatformSupport.isPortable()) {
@@ -1733,6 +1795,7 @@ public final class MainWindow extends JFrame {
         backendStatus.setText(status);
         if (backend.isReady() && !restoredTargetsRequested) {
             restoredTargetsRequested = true;
+            if (app.multimin.backend.PlatformSupport.isMac()) checkMacPermissionsOnLaunch();
             backend.requestWindowList(targets -> SwingUtilities.invokeLater(() -> {
                 for(View view:views) for(int i=0;i<view.sources.size();i++) {
                     Source source=view.sources.get(i);
@@ -1755,6 +1818,90 @@ public final class MainWindow extends JFrame {
             }));
         }
     }); }
+
+    // ---- macOS permissions -------------------------------------------------
+    private JDialog macPermissionDialog;
+    private boolean macPermissionsChecked;
+    /** At launch: ask the backend once; open the guide only if something is missing. */
+    private void checkMacPermissionsOnLaunch() {
+        backend.setMacPermissionHandler((screen, accessibility, input) -> SwingUtilities.invokeLater(() -> {
+            if (macPermissionsChecked) return;
+            macPermissionsChecked = true;
+            backend.setMacPermissionHandler(null);
+            if (!screen || !accessibility) showMacPermissions();
+        }));
+        backend.send("{\"command\":\"mac_permissions\"}");
+    }
+    /**
+     * Guided window: macOS lets only the user switch these on, so each row shows
+     * the status, an Allow button that brings up macOS's prompt and the exact
+     * Settings list, and ticks itself off as soon as the switch is on.
+     */
+    void showMacPermissions() {
+        if (!app.multimin.backend.PlatformSupport.isMac()) return;
+        if (macPermissionDialog != null && macPermissionDialog.isDisplayable()) { macPermissionDialog.toFront(); return; }
+        JDialog dialog = dialog("MultiMini needs permission"); dialog.setModal(false); macPermissionDialog = dialog;
+        JPanel body = dialogBody();
+        JLabel intro = new JLabel("<html><b>macOS asks you to allow a few things once.</b><br>Click Allow, then turn on <b>MultiMini</b> in the list that opens. This window updates by itself.</html>");
+        intro.setForeground(palette.text); body.add(intro, BorderLayout.NORTH);
+        JPanel rows = transparent(new GridLayout(0, 1, 0, 10));
+        String[][] items = {
+            {"screen", "Screen Recording", "Show the windows and displays you add"},
+            {"accessibility", "Accessibility", "Hotkeys, and clicks/keys reaching the app you control"},
+            {"input", "Input Monitoring", "Optional: only if hotkeys still don't work"}};
+        java.util.Map<String, JLabel> states = new java.util.HashMap<>();
+        java.util.Map<String, JButton> buttons = new java.util.HashMap<>();
+        for (String[] item : items) {
+            JPanel row = transparent(new BorderLayout(10, 0));
+            JLabel state = new JLabel("…"); state.setFont(state.getFont().deriveFont(Font.BOLD, 16f)); state.setPreferredSize(new Dimension(22, 22));
+            JLabel text = new JLabel("<html><b>" + item[1] + "</b><br><span style='font-size:90%'>" + item[2] + "</span></html>"); text.setForeground(palette.text);
+            JButton allow = toolButton("Allow", "Open the macOS prompt and Settings for " + item[1]);
+            allow.addActionListener(event -> backend.send("{\"command\":\"mac_request_permission\",\"kind\":\"" + item[0] + "\"}"));
+            row.add(state, BorderLayout.WEST); row.add(text, BorderLayout.CENTER); row.add(allow, BorderLayout.EAST);
+            rows.add(row); states.put(item[0], state); buttons.put(item[0], allow);
+        }
+        body.add(rows, BorderLayout.CENTER);
+        JLabel hint = muted("Screen Recording takes effect after a restart.");
+        JButton later = toolButton("Later", "Close this window");
+        JButton restart = primaryButton("Restart MultiMini");
+        restart.setEnabled(false);
+        later.addActionListener(event -> dialog.dispose());
+        restart.addActionListener(event -> restartMacApp());
+        JPanel actions = transparent(new BorderLayout(8, 0)); actions.add(hint, BorderLayout.CENTER);
+        JPanel buttonsRow = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); buttonsRow.add(later); buttonsRow.add(restart); actions.add(buttonsRow, BorderLayout.EAST);
+        body.add(actions, BorderLayout.SOUTH);
+        boolean[] firstStatus = {true}; boolean[] startedScreen = {false};
+        backend.setMacPermissionHandler((screen, accessibility, input) -> SwingUtilities.invokeLater(() -> {
+            if (!dialog.isDisplayable()) return;
+            if (firstStatus[0]) { firstStatus[0] = false; startedScreen[0] = screen; }
+            boolean[] granted = {screen, accessibility, input};
+            for (int i = 0; i < items.length; i++) {
+                JLabel state = states.get(items[i][0]);
+                state.setText(granted[i] ? "✓" : "✕");
+                state.setForeground(granted[i] ? new Color(64, 190, 120) : new Color(230, 90, 90));
+                buttons.get(items[i][0]).setVisible(!granted[i]);
+            }
+            boolean ready = screen && accessibility;
+            restart.setEnabled(ready);
+            hint.setText(ready ? (startedScreen[0] ? "All set. You can close this window." : "All set. Restart once so screen capture can start.")
+                : "Screen Recording takes effect after a restart.");
+        }));
+        javax.swing.Timer poll = new javax.swing.Timer(1500, event -> backend.send("{\"command\":\"mac_permissions\"}"));
+        poll.setInitialDelay(0); poll.start();
+        dialog.addWindowListener(new WindowAdapter() { @Override public void windowClosed(WindowEvent event) { poll.stop(); backend.setMacPermissionHandler(null); } });
+        dialog.setContentPane(body); dialog.setSize(520, 330); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+    }
+    /** Save, start a fresh copy of the app bundle after this one exits, and quit. */
+    private void restartMacApp() {
+        try {
+            java.nio.file.Path bundle = MacUpdater.appBundle();
+            saveWorkspace();
+            new ProcessBuilder("/bin/sh", "-c", "sleep 1; /usr/bin/open -n \"$0\"", bundle.toString()).start();
+            shutdownServices(); dispose(); System.exit(0);
+        } catch (Exception error) {
+            showNotice("Restart MultiMini", "Quit MultiMini (Command+Q) and open it again so the new permissions take effect.");
+        }
+    }
 
     private void showNotice(String title, String message) {
         JDialog dialog = dialog(title); JPanel body = dialogBody();
