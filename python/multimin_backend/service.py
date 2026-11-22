@@ -236,6 +236,11 @@ class CaptureService:
             if self.native_input and self.multitask_enabled:
                 self.native_input.refresh_overlay_hit_test()
             return {"event": "overlay_hit_test_refreshed"}
+        if command == "window_thumbnails":
+            from .thumbnails import windows_thumbnail, windows_process_path
+            from .thumbnails import thumbnail_worker, thumbnail_request
+            thumbnail_worker(self.emit, windows_thumbnail, *thumbnail_request(message), describe=windows_process_path)
+            return {"event": "window_thumbnails_started"}
         if command == "list_windows":
             windows = self.native_input.list_windows() if self.native_input else []
             return {"event": "window_list", "items": windows}

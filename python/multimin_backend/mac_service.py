@@ -287,6 +287,11 @@ class MacService:
             return {"event": "input_released"}
         if command == "linux_check_input":
             return {"event": "input_checked"}
+        if command == "window_thumbnails":
+            from .thumbnails import thumbnail_worker, thumbnail_request
+            from .thumbnails import mac_thumbnail
+            thumbnail_worker(self.emit, mac_thumbnail, *thumbnail_request(message))
+            return {"event": "window_thumbnails_started"}
         if command == "mac_permissions":
             from . import mac_permissions
             return dict(event="mac_permissions", **mac_permissions.status())

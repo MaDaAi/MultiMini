@@ -25,31 +25,42 @@ public final class VectorIcon implements Icon {
             }
             case UP: g.drawLine(m, c + 3, c, c - 3); g.drawLine(c, c - 3, size - m, c + 3); break;
             case DOWN: g.drawLine(m, c - 3, c, c + 3); g.drawLine(c, c + 3, size - m, c - 3); break;
-            case DISPLAY: g.drawRoundRect(m, m + 1, size - m * 2, size - 6, 2, 2); g.drawLine(c, size - 5, c, size - 2); g.drawLine(c - 3, size - 2, c + 3, size - 2); break;
-            case WINDOW: g.drawRoundRect(m, m + 1, size - m * 2, size - 4, 2, 2); g.drawLine(m, m + 5, size - m, m + 5); break;
-            case IMAGE: g.drawRoundRect(m, m, size - m * 2, size - m * 2, 2, 2); g.fillOval(size - 6, 3, 2, 2); g.drawLine(4, size - 4, 8, size - 8); g.drawLine(8, size - 8, size - 4, size - 4); break;
+            case DISPLAY: { Graphics2D v=(Graphics2D)g.create();v.scale(size/24.0,size/24.0);v.setStroke(new BasicStroke(1.8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                // Monitor: screen, neck and base.
+                v.draw(new java.awt.geom.RoundRectangle2D.Double(2.5,3.5,19,13.5,3,3));
+                v.draw(new java.awt.geom.Line2D.Double(12,17,12,20.2)); v.draw(new java.awt.geom.Line2D.Double(7.8,20.5,16.2,20.5));
+                v.dispose(); break; }
+            case WINDOW: { Graphics2D v=(Graphics2D)g.create();v.scale(size/24.0,size/24.0);v.setStroke(new BasicStroke(1.8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                v.draw(new java.awt.geom.RoundRectangle2D.Double(2.5,3.5,19,17,3,3)); v.draw(new java.awt.geom.Line2D.Double(2.5,8.5,21.5,8.5));
+                v.fill(new java.awt.geom.Ellipse2D.Double(5,5.2,1.8,1.8)); v.fill(new java.awt.geom.Ellipse2D.Double(7.8,5.2,1.8,1.8));
+                v.dispose(); break; }
+            case IMAGE: { Graphics2D v=(Graphics2D)g.create();v.scale(size/24.0,size/24.0);v.setStroke(new BasicStroke(1.8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                // Photo: frame, sun sitting inside the frame, mountains.
+                v.draw(new java.awt.geom.RoundRectangle2D.Double(2.5,3.5,19,17,3,3));
+                v.fill(new java.awt.geom.Ellipse2D.Double(14,8.2,3.4,3.4));
+                java.awt.geom.Path2D hills=new java.awt.geom.Path2D.Double(); hills.moveTo(3,18.5); hills.lineTo(9,12.5); hills.lineTo(13.5,17); hills.lineTo(16,14.5); hills.lineTo(21,19.2); v.draw(hills);
+                v.dispose(); break; }
             case VIDEO: case PLAY: Polygon p = new Polygon(new int[]{4, 4, size - 3}, new int[]{3, size - 3, c}, 3); g.drawPolygon(p); break;
-            case GAME: {
-                Graphics2D pad=(Graphics2D)g.create();pad.scale(size/24.0,size/24.0);pad.setStroke(new BasicStroke(1.8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));java.awt.geom.Path2D shape=new java.awt.geom.Path2D.Double();shape.moveTo(7,6);shape.curveTo(4,6,3.5,9,2.5,16);shape.curveTo(2,20,5,21,8,16);shape.lineTo(16,16);shape.curveTo(19,21,22,20,21.5,16);shape.curveTo(20.5,9,20,6,17,6);shape.closePath();pad.draw(shape);pad.drawLine(6,11,10,11);pad.drawLine(8,9,8,13);pad.fillOval(15,9,2,2);pad.fillOval(18,12,2,2);pad.dispose();break;
-            }
+            case GAME: { Graphics2D v=(Graphics2D)g.create();v.scale(size/24.0,size/24.0);v.setStroke(new BasicStroke(1.8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                // Game controller: wide body with two grips, d-pad and two buttons.
+                java.awt.geom.Path2D pad=new java.awt.geom.Path2D.Double();
+                pad.moveTo(8,6.5); pad.lineTo(16,6.5); pad.curveTo(19.6,6.5,21,9,21.6,13.6); pad.curveTo(22.1,17.3,20.2,19.3,18.3,18.5);
+                pad.curveTo(17.1,18,16.4,16.2,15.3,15.6); pad.lineTo(8.7,15.6); pad.curveTo(7.6,16.2,6.9,18,5.7,18.5);
+                pad.curveTo(3.8,19.3,1.9,17.3,2.4,13.6); pad.curveTo(3,9,4.4,6.5,8,6.5); pad.closePath(); v.draw(pad);
+                v.draw(new java.awt.geom.Line2D.Double(6,11,10,11)); v.draw(new java.awt.geom.Line2D.Double(8,9,8,13));
+                v.fill(new java.awt.geom.Ellipse2D.Double(14.7,9,2.4,2.4)); v.fill(new java.awt.geom.Ellipse2D.Double(17.2,11.4,2.4,2.4));
+                v.dispose(); break; }
             case CAMERA: g.drawRoundRect(m, 4, size - m * 2, size - 7, 3, 3); g.drawOval(c - 3, c - 2, 6, 6); break;
             case BOLT:
                 Polygon bolt = new Polygon(new int[]{c + 1, size - 3, c + 2, c + 2, 3, c - 1}, new int[]{2, 2, c - 1, c - 1, size - 2, c + 1}, 6);
                 g.setColor(Color.BLACK); g.setStroke(new BasicStroke(Math.max(2.6f, size / 5.5f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)); g.drawPolygon(bolt);
                 g.setColor(color.get()); g.fillPolygon(bolt); break;
             case POINTER: Polygon pointer = new Polygon(new int[]{3, 3, size - 3, size - 7, size - 5, size - 8, size - 10, size - 9}, new int[]{2, size - 3, size - 8, size - 10, size - 13, size - 15, size - 12, size - 9}, 8); g.drawPolygon(pointer); break;
-            case MOUSE:
-                g.setStroke(new BasicStroke(Math.max(2.8f, size / 5f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g.setColor(Color.BLACK);
-                g.drawRoundRect(size / 4, 2, size / 2, size - 4, size / 3, size / 3);
-                g.drawLine(c, 3, c, size / 2 + 1);
-                g.drawLine(size / 4 + 1, size / 2, size - size / 4 - 1, size / 2);
-                g.setStroke(new BasicStroke(Math.max(1.4f, size / 9f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g.setColor(color.get());
-                g.drawRoundRect(size / 4, 2, size / 2, size - 4, size / 3, size / 3);
-                g.drawLine(c, 3, c, size / 2 + 1);
-                g.drawLine(size / 4 + 1, size / 2, size - size / 4 - 1, size / 2);
-                break;
+            case MOUSE: { Graphics2D v=(Graphics2D)g.create();v.scale(size/24.0,size/24.0);v.setStroke(new BasicStroke(1.8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+                // Computer mouse: rounded body, button split and scroll wheel.
+                v.draw(new java.awt.geom.RoundRectangle2D.Double(6,2.5,12,19,12,12));
+                v.draw(new java.awt.geom.Line2D.Double(12,2.8,12,9.5)); v.draw(new java.awt.geom.Line2D.Double(6.4,9.8,17.6,9.8));
+                v.dispose(); break; }
             case GEAR:
                 // Notefira's eight-tooth settings icon (src/ui/icons.tsx),
                 // expressed geometrically on the same 24-unit coordinate grid.

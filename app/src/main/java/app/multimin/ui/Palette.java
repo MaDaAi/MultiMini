@@ -3,16 +3,29 @@ package app.multimin.ui;
 import java.awt.Color;
 
 public final class Palette {
-    public Color primary = new Color(29, 31, 35);
+    // Layered neutrals with a faint cool tint: app chrome < panels < raised controls.
+    public Color primary = new Color(20, 23, 28);
     public Color accent = new Color(103, 153, 255);
-    public Color background = new Color(22, 23, 26);
-    public Color panel = new Color(29, 31, 35);
-    public Color panelRaised = new Color(39, 42, 47);
-    public Color line = new Color(58, 61, 67);
-    public Color text = new Color(237, 238, 240);
-    public Color muted = new Color(159, 164, 174);
+    public Color background = new Color(13, 15, 19);
+    public Color panel = new Color(20, 23, 28);
+    public Color panelRaised = new Color(29, 33, 41);
+    public Color line = new Color(37, 42, 51);
+    public Color text = new Color(236, 239, 244);
+    public Color muted = new Color(146, 154, 168);
+    private boolean lightMode;
 
     public Color controlSurface() { return new Color(panelRaised.getRed(), panelRaised.getGreen(), panelRaised.getBlue()); }
+    public boolean isLight() { return lightMode; }
+    /** Deepest surface: the canvas well behind the composition preview. */
+    public Color canvas() { return lightMode ? blend(background, new Color(210, 215, 224), 0.35f) : blend(background, Color.BLACK, 0.35f); }
+    /** Card surface one step above panels (rows, tiles, grouped settings). */
+    public Color card() { return lightMode ? Color.WHITE : blend(panel, panelRaised, 0.55f); }
+    /** Hover wash for interactive surfaces. */
+    public Color hover(Color base) { return blend(base, text, lightMode ? 0.05f : 0.07f); }
+    /** Hairline used for decorative card edges (controls use controlBorder). */
+    public Color hairline() { return lightMode ? new Color(222, 226, 233) : blend(panel, text, 0.10f); }
+    /** Accent at a given strength over a surface, for soft tints and glows. */
+    public Color accentTint(Color base, float amount) { return blend(base, accent, amount); }
 
     /** Opaque, low-emphasis selection for navigation and list rows. */
     public Color selectionSurface() { return blend(controlSurface(), accent, 0.16f); }
@@ -56,15 +69,17 @@ public final class Palette {
     }
 
     public void dark() {
-        primary = new Color(29, 31, 35); background = new Color(22, 23, 26);
-        panel = new Color(29, 31, 35); panelRaised = new Color(39, 42, 47);
-        line = new Color(58, 61, 67); text = new Color(237, 238, 240); muted = new Color(159, 164, 174);
+        lightMode = false;
+        primary = new Color(20, 23, 28); background = new Color(13, 15, 19);
+        panel = new Color(20, 23, 28); panelRaised = new Color(29, 33, 41);
+        line = new Color(37, 42, 51); text = new Color(236, 239, 244); muted = new Color(146, 154, 168);
     }
 
     public void light() {
-        primary = new Color(246, 247, 249); background = new Color(237, 239, 243);
-        panel = new Color(250, 251, 252); panelRaised = new Color(240, 242, 246);
-        line = new Color(215, 219, 226); text = new Color(30, 34, 41); muted = new Color(101, 109, 123);
+        lightMode = true;
+        primary = new Color(248, 249, 251); background = new Color(236, 239, 243);
+        panel = new Color(248, 249, 251); panelRaised = new Color(240, 243, 247);
+        line = new Color(221, 225, 232); text = new Color(22, 26, 33); muted = new Color(92, 100, 114);
     }
 
     public void customBase(Color base) {
