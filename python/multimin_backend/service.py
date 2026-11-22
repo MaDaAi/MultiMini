@@ -41,6 +41,9 @@ class CaptureService:
         self.graphics_starting: set[str] = set()
         self.frame_locks: dict[str, threading.Lock] = {}
         self.graphics_retry_after: dict[str, float] = {}
+        # WGC always delivers a first frame soon after start; a session that has not
+        # is stalled and is restarted (path -> (deadline, next stall timeout)).
+        self.graphics_first_frame_deadline: dict[str, tuple[float, float]] = {}
         self.capture_lock = threading.RLock()
         self.capture_stop = threading.Event()
         self.capture_thread = None
@@ -64,6 +67,7 @@ class CaptureService:
                 with self.capture_lock:
                     graphics_active = path in self.graphics_captures or path in self.graphics_starting
                 if graphics_active:
+                    self._check_first_frame(path, hwnd, method)
                     continue
                 if method in ("AUTO", "WGC", "MONITOR") and time.monotonic() >= self.graphics_retry_after.get(path, 0.0):
                     started = (self._start_graphics_capture(path, hwnd, capture_cursor, monitor_index=hwnd)
@@ -80,6 +84,29 @@ class CaptureService:
                 except Exception as error:
                     self.emit({"event": "error", "message": f"Window capture failed: {error}"})
             self.capture_stop.wait(max(0.001, 1.0 / self.capture_fps - (time.monotonic() - iteration_started)))
+
+    FIRST_FRAME_TIMEOUT = 1.2
+    MAX_FIRST_FRAME_TIMEOUT = 10.0
+
+    def _check_first_frame(self, path: str, hwnd: int, method: str) -> None:
+        watch = self.graphics_first_frame_deadline.get(path)
+        if watch is None:
+            return
+        if self.frame_stream.has_frame(path):
+            self.graphics_first_frame_deadline.pop(path, None)
+            return
+        deadline, timeout = watch
+        if time.monotonic() < deadline:
+            return
+        if method != "MONITOR" and self.native_input.user32.IsIconic(hwnd):
+            # Minimized windows legitimately have no frames; check again later.
+            self.graphics_first_frame_deadline[path] = (time.monotonic() + timeout, timeout)
+            return
+        self._stop_graphics_capture(path)
+        with self.capture_lock:
+            self.graphics_retry_after.pop(path, None)
+        # Restarted by the loop on its next pass, with a longer allowance next time.
+        self.graphics_first_frame_deadline[path] = (0.0, min(self.MAX_FIRST_FRAME_TIMEOUT, timeout * 2))
 
     def _stop_graphics_capture(self, path: str) -> None:
         with self.capture_lock:
@@ -142,6 +169,9 @@ class CaptureService:
             with self.capture_lock:
                 self.graphics_captures[path] = (capture, control)
             self.graphics_retry_after.pop(path, None)
+            if not self.frame_stream.has_frame(path):
+                timeout = self.graphics_first_frame_deadline.get(path, (0.0, self.FIRST_FRAME_TIMEOUT))[1]
+                self.graphics_first_frame_deadline[path] = (time.monotonic() + timeout, timeout)
             return True
         except Exception as error:
             self.emit({"event": "error", "message": f"Isolated window capture failed: {error}"})
@@ -212,7 +242,7 @@ class CaptureService:
                 self.native_input.set_mouse_target(hwnd,
                     (int(message.get("x", 0)), int(message.get("y", 0)), int(message.get("width", 0)), int(message.get("height", 0))),
                     (int(message.get("exclude_x", 0)), int(message.get("exclude_y", 0)), int(message.get("exclude_width", 0)), int(message.get("exclude_height", 0))),
-                    bool(message.get("desktop_input", False)))
+                    bool(message.get("desktop_input", False)), bool(message.get("keep_size", False)))
             return {"event": "input_target_changed", "name": self.input_target, "focused": focused}
         if command == "set_layer_layout":
             if self.native_input:
@@ -384,7 +414,28 @@ def emit(message: dict) -> None:
         print(json.dumps(message, separators=(",", ":")), flush=True)
 
 
+def _preload_native_modules() -> None:
+    """Import DLL-backed modules before any thread blocks reading stdin.
+
+    On Windows a DLL's C runtime start-up queries the standard handles; while
+    another thread is blocked in a synchronous read on the stdin pipe that query
+    waits until the next command arrives. A lazy `windows_capture` (numpy/cv2)
+    import on the capture thread therefore stalled the first capture for seconds.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import windows_capture  # noqa: F401  (pulls in numpy and cv2)
+    except Exception:
+        pass
+    try:
+        from PIL import ImageGrab  # noqa: F401
+    except Exception:
+        pass
+
+
 def run() -> None:
+    _preload_native_modules()
     service = CaptureService(emit)
     service.snapshots.cleanup()
     emit({"event": "ready", "protocol": 1, "local_only": True, "frame_port": service.frame_stream.port,

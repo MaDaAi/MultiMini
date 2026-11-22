@@ -14,12 +14,27 @@ final class WindowSurfaceCompositor implements AutoCloseable {
     private record Placement(Rectangle viewport,Rectangle clip,int left,int top,int width,int height,int opacity) {}
     private final Map<Long,Placement> placements=new HashMap<>();
     private long owner;
-    private boolean failed;
-    void reset() { close();failed=false; }
+    // A failed native registration used to disable DWM presentation for the whole
+    // multitask session. On first entry sources are often still minimized or being
+    // restored when the first paint runs, so the session stayed on the slower
+    // capture renderer until the next entry. Retry with a growing backoff instead.
+    private long retryAtNanos;
+    private long backoffNanos=INITIAL_BACKOFF;
+    private static final long INITIAL_BACKOFF=400_000_000L, MAX_BACKOFF=5_000_000_000L;
+    void reset() { close();retryAtNanos=0;backoffNanos=INITIAL_BACKOFF; }
+    private void fail() {
+        close();
+        retryAtNanos=System.nanoTime()+backoffNanos;
+        backoffNanos=Math.min(MAX_BACKOFF,backoffNanos*2);
+    }
+    /** True while waiting to retry native presentation after a failure. */
+    boolean coolingDown() { return retryAtNanos!=0 && System.nanoTime()<retryAtNanos; }
+    /** A retry is due: the next paint should attempt native presentation again. */
+    boolean retryDue() { return retryAtNanos!=0 && System.nanoTime()>=retryAtNanos; }
 
     void update(PreviewPanel panel,View view,Rectangle canvas,boolean locked,IntFunction<Rectangle> bounds) {
         boolean eligible=locked && panel.isShowing() && Boolean.getBoolean("multimin.nativeWindowPresentation")
-            && !Boolean.getBoolean("multimin.disableNativeComposition") && !failed;
+            && !Boolean.getBoolean("multimin.disableNativeComposition") && !coolingDown();
         List<Source> sources=new ArrayList<>();
         if(eligible) for(int i=view.sources.size()-1;i>=0;i--) {
             Source source=view.sources.get(i);
@@ -42,19 +57,19 @@ final class WindowSurfaceCompositor implements AutoCloseable {
                 close();owner=destination;
                 for(Source source:sources) {
                     long thumbnail=NativeWindowCompositor.register(owner,source.nativeWindowHandle);
-                    if(thumbnail==0){failed=true;close();return;}
+                    if(thumbnail==0){fail();return;}
                     entries.add(new Entry(source,source.nativeWindowHandle,thumbnail));
                 }
             }
             for(Entry entry:entries) {
                 Source source=entry.source();long size=NativeWindowCompositor.size(entry.thumbnail());
                 int width=(int)(size>>>32),height=(int)size;
-                if(width<=0 || height<=0){failed=true;close();return;}
+                if(width<=0 || height<=0){fail();return;}
                 source.nativeSourceWidth=width;source.nativeSourceHeight=height;
                 Rectangle dest=bounds.apply(view.sources.indexOf(source));dest.translate(location.x,location.y);
                 dest=PreviewPanel.toPhysicalScreenBounds(dest,panel.getGraphicsConfiguration());
                 Rectangle clip=dest.intersection(viewport);
-                if(clip.isEmpty()){failed=true;close();return;}
+                if(clip.isEmpty()){fail();return;}
                 int left=(int)Math.round((clip.x-dest.x)*(double)width/dest.width);
                 int top=(int)Math.round((clip.y-dest.y)*(double)height/dest.height);
                 int right=(int)Math.round((clip.x+clip.width-dest.x)*(double)width/dest.width);
@@ -63,14 +78,15 @@ final class WindowSurfaceCompositor implements AutoCloseable {
                 Placement placement=new Placement(viewport,clip,left,top,right-left,bottom-top,opacity);
                 if(!placement.equals(placements.get(entry.thumbnail()))) {
                     if(!NativeWindowCompositor.update(entry.thumbnail(),owner,clip.x,clip.y,clip.width,clip.height,
-                        left,top,right-left,bottom-top,opacity)) {failed=true;close();return;}
+                        left,top,right-left,bottom-top,opacity)) {fail();return;}
                     placements.put(entry.thumbnail(),placement);
                 }
                 source.nativeCompositionActive=true;
                 source.standbyFrame=null;
                 source.activeCaptureBackend="Native DWM composition · monitor paced · no CPU frames";
             }
-        } catch(LinkageError | RuntimeException error){failed=true;close();}
+            retryAtNanos=0;backoffNanos=INITIAL_BACKOFF;
+        } catch(LinkageError | RuntimeException error){fail();}
     }
 
     @Override public void close() {

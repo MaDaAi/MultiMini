@@ -60,6 +60,11 @@ $cfg = Join-Path $output 'app\MultiMini.cfg'
 $text = Get-Content -LiteralPath $cfg -Raw
 $updated = [regex]::Replace($text, 'jpackage\.app-version=[0-9.]+', "jpackage.app-version=$Version")
 if ($updated -eq $text -and $text -notmatch "jpackage\.app-version=$([regex]::Escape($Version))") { throw 'Could not set version in MultiMini.cfg' }
+# Startup heap and short GC pauses: the first full-screen multitask paint used to grow
+# the heap and trigger collections mid-frame. Older baselines lack these options.
+foreach ($option in @('-Xms512m', '-XX:MaxGCPauseMillis=8')) {
+    if ($updated -notmatch [regex]::Escape("java-options=$option")) { $updated = $updated -replace '(java-options=-Xmx2g)', "java-options=$option`r`n`$1" }
+}
 Set-Content -LiteralPath $cfg -Value $updated -Encoding ascii -NoNewline
 
 # Smoke-test the embedded Python with the new backend sources.

@@ -54,7 +54,7 @@ $Channel = if ($SafetyBuild) { 'Safety' } else { 'Windows' }
 & "$RuntimeRoot\python.exe" (Join-Path $PSScriptRoot 'generate-branding.py') --channel $Channel
 if ($LASTEXITCODE -ne 0) { throw 'Branding asset generation failed.' }
 $ImageRoot = Join-Path $PackageRoot 'image'
-& "$Jdk\bin\jpackage.exe" --type app-image --name MultiMini --app-version $Version --vendor 'Mansoor Alakoozai' --icon (Join-Path $ProjectRoot 'installer\assets\multimini.ico') --input $InputRoot --main-jar MultiMini.jar --dest $ImageRoot --add-modules java.desktop,java.management,jdk.management,jdk.unsupported --java-options '--enable-native-access=ALL-UNNAMED' --java-options '-Xmx2g' --java-options '-XX:G1HeapRegionSize=32m'
+& "$Jdk\bin\jpackage.exe" --type app-image --name MultiMini --app-version $Version --vendor 'Mansoor Alakoozai' --icon (Join-Path $ProjectRoot 'installer\assets\multimini.ico') --input $InputRoot --main-jar MultiMini.jar --dest $ImageRoot --add-modules java.desktop,java.management,jdk.management,jdk.unsupported --java-options '--enable-native-access=ALL-UNNAMED' --java-options '-Xms512m' --java-options '-Xmx2g' --java-options '-XX:G1HeapRegionSize=32m' --java-options '-XX:MaxGCPauseMillis=8'
 if ($LASTEXITCODE -ne 0) { throw 'Native launcher packaging failed.' }
 $AppImage = Join-Path $ImageRoot 'MultiMini'
 if (Test-Path -LiteralPath (Join-Path $Jdk 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $Jdk 'LICENSE') -Destination (Join-Path $AppImage 'runtime\JDK-LICENSE.txt') -Force }

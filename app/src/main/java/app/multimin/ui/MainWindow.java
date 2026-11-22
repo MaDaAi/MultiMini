@@ -675,10 +675,18 @@ public final class MainWindow extends JFrame {
             var transform=preview.getGraphicsConfiguration().getDefaultTransform();
             backend.send("{\"command\":\"linux_coordinate_scale\",\"x\":"+transform.getScaleX()+",\"y\":"+transform.getScaleY()+"}");
         }
+        // Before the first frame (or DWM size) arrives the preview only has a 16:9
+        // placeholder, which used to resize the real app window to fill the screen.
+        boolean sizeUnknown = source.usesWindowTarget() && source.liveFrame == null && source.nativeSourceWidth <= 0 && source.inputReferenceWidth <= 0;
+        targetSizePending = multitask && sizeUnknown ? source : null;
         backend.setInputTarget(target, source.nativeWindowHandle, mapped.x, mapped.y, mapped.width, mapped.height,
-            excluded.x, excluded.y, excluded.width, excluded.height, desktopInput,source.captureFramePath);
+            excluded.x, excluded.y, excluded.width, excluded.height, desktopInput,source.captureFramePath,sizeUnknown);
         multitaskInputLabel.setText("Input target: " + source.name); updateControlIndicator(); preview.repaint();
     }
+    /** Input target sent before its size was known; re-sent once a frame arrives. */
+    private Source targetSizePending;
+    /** Layer-layout sources sent without a known size; laid out again once one has a frame. */
+    private final java.util.Set<Source> layerSizePending = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private void refreshNativeLayerLayout() {
         if (!multitask || multitaskWindow == null) return;
         // The preview owns the visual composition. Cutting out window sources
@@ -688,6 +696,7 @@ public final class MainWindow extends JFrame {
         multitaskWindow.setShape(null);
         StringBuilder items = new StringBuilder();
         java.util.Set<Long> seen = new java.util.HashSet<>();
+        layerSizePending.clear();
         for (int i = 0; i < activeView.sources.size(); i++) {
             Source source = activeView.sources.get(i);
             if (!source.visible || !source.usesWindowTarget() || source.nativeWindowHandle == 0
@@ -696,11 +705,15 @@ public final class MainWindow extends JFrame {
             try { bounds = preview.sourceBoundsOnScreen(i); }
             catch (IllegalComponentStateException error) { continue; }
             if (bounds.width <= 0 || bounds.height <= 0) continue;
+            boolean keepSize = source.liveFrame == null && source.nativeSourceWidth <= 0 && source.inputReferenceWidth <= 0;
+            if (keepSize) layerSizePending.add(source);
             if (items.length() > 0) items.append(',');
             items.append("{\"hwnd\":").append(source.nativeWindowHandle)
                 .append(",\"x\":").append(bounds.x).append(",\"y\":").append(bounds.y)
                 .append(",\"width\":").append(bounds.width).append(",\"height\":").append(bounds.height)
-                .append(",\"opacity\":").append(source.opacity).append('}');
+                .append(",\"opacity\":").append(source.opacity)
+                .append(",\"keep_size\":").append(keepSize)
+                .append('}');
         }
         backend.send("{\"command\":\"set_layer_layout\",\"items\":[" + items + "]}");
     }
@@ -1654,10 +1667,12 @@ public final class MainWindow extends JFrame {
             if(app.multimin.backend.PlatformSupport.isPortable()) multitaskWindow.setType(Window.Type.POPUP);
             multitaskWindow.setFocusableWindowState(false);
             multitaskWindow.setAlwaysOnTop(true);
-            // Avoid the per-pixel translucent XWayland update path when
-            // the composition already paints an opaque black background.
-            multitaskWindow.setBackground(app.multimin.backend.PlatformSupport.isPortable() && !preview.needsTransparentOverlay()
-                ? Color.BLACK : new Color(0, 0, 0, 0));
+            // A per-pixel translucent full-screen window is copied in software on every
+            // paint (UpdateLayeredWindow on Windows, XWayland alpha on Linux). When the
+            // composition paints its own opaque black background (no display layer
+            // showing the desktop through it), use an opaque window instead.
+            // -Dmultimin.translucentOverlay=true restores the old translucent overlay (A/B testing).
+            multitaskWindow.setBackground(!preview.needsTransparentOverlay() && !Boolean.getBoolean("multimin.translucentOverlay") ? Color.BLACK : new Color(0, 0, 0, 0));
             multitaskWindow.setContentPane(preview);
             Rectangle screenBounds = device.getDefaultConfiguration().getBounds();
             if (app.multimin.backend.PlatformSupport.isMac()) {
@@ -1669,6 +1684,13 @@ public final class MainWindow extends JFrame {
             }
             multitaskWindow.setBounds(screenBounds);
             multitaskWindow.setVisible(true);
+            if (app.multimin.backend.PlatformSupport.isWindows() && multitaskWindow.isOpaque()) {
+                // An opaque window's first paint is otherwise queued behind this whole
+                // entry sequence (~30-40 ms). Paint now so the first frame (and native
+                // presentation, which starts from paint) appears immediately.
+                JRootPane root = multitaskWindow.getRootPane();
+                root.paintImmediately(0, 0, root.getWidth(), root.getHeight());
+            }
             if(app.multimin.backend.PlatformSupport.isPortable()) {
                 long xid=app.multimin.backend.LinuxWindowIdentity.get(multitaskWindow);
                 backend.send("{\"command\":\"linux_overlay_window\",\"xid\":"+xid+"}");
@@ -1848,6 +1870,15 @@ public final class MainWindow extends JFrame {
                         source.producedNanos = frame.producedNanos;
                     }
                     if (!frames.isEmpty() && !preview.hasLinuxDirectSource()) preview.repaint();
+                    Source pending = targetSizePending;
+                    if (pending != null && multitask && (pending.liveFrame != null || pending.nativeSourceWidth > 0)) {
+                        int index = activeView.sources.indexOf(pending);
+                        targetSizePending = null;
+                        if (index == activeView.controlSource) setControlTarget(index);
+                    }
+                    if (multitask && !layerSizePending.isEmpty()
+                        && layerSizePending.stream().anyMatch(s -> s.liveFrame != null || s.nativeSourceWidth > 0))
+                        refreshNativeLayerLayout();
                 } finally {
                     windowFrameScanQueued.set(false);
                     if (newFramePending.get()) requestWindowFrames();

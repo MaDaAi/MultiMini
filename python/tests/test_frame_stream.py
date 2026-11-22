@@ -51,7 +51,8 @@ class FrameStreamTests(unittest.TestCase):
                     header = self._read(client, 28)
                     width, height, sequence, timestamp, length = struct.unpack("!IIQQI", header)
                     self.assertEqual((width, height, sequence, length), (1, 1, 2, expected_length))
-                    self.assertGreater(timestamp, 0)
+                    self.assertGreaterEqual(timestamp, 0)  # frame age in ns
+                    self.assertLess(timestamp, 5_000_000_000)
                     if length:
                         self.assertEqual(self._read(client, length), bytes((4, 5, 6, 255)))
                 stream.remove("source")

@@ -76,7 +76,9 @@ public final class WindowFrameReader implements AutoCloseable {
         try {
             output.writeShort(name.length | (sharedEnabled ? 0x8000 : 0)); output.write(name); output.writeLong(previousSequence); output.flush();
             int width = input.readInt(), height = input.readInt();
-            long sequence = input.readLong(), produced = input.readLong();
+            // The backend sends the frame's age in nanoseconds (its clock differs from
+            // System.nanoTime), so publication time is reconstructed on this clock.
+            long sequence = input.readLong(), produced = System.nanoTime() - Math.max(0, input.readLong());
             int length = input.readInt();
             if (width <= 0 || height <= 0 || length == 0) return null;
             boolean shared = length == -1;
