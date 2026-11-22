@@ -89,6 +89,25 @@ public final class RedesignShots {
             Method demo = picker.getDeclaredMethod("demo", MainWindow.class); demo.setAccessible(true);
             capture("6-picker" + (light ? "-light" : ""), () -> { try { demo.invoke(null, window); } catch (Exception e) { throw new RuntimeException(e); } });
         }
+        // Display picker with sample monitor images (never the real screen).
+        capture("7-displays" + (light ? "-light" : ""), () -> {
+            JDialog d = new JDialog(window, "Choose a display", true);
+            WindowPicker p = new WindowPicker(window.uiPalette()); p.setDisplayMode(true);
+            java.util.List<app.multimin.backend.PythonBridge.WindowTarget> displays = java.util.List.of(
+                new app.multimin.backend.PythonBridge.WindowTarget("2560 × 1440 · primary", "Display 1", 1, 0, 0, 2560, 1440),
+                new app.multimin.backend.PythonBridge.WindowTarget("1920 × 1080", "Display 2", 2, 2560, 0, 1920, 1080));
+            p.setTargets(displays); p.setSelected(displays.get(0));
+            p.setThumbnail(1, sample(420, 236, new Color(30, 60, 120), new Color(15, 20, 40), "Display 1"));
+            p.setThumbnail(2, sample(420, 236, new Color(90, 50, 120), new Color(25, 15, 40), "Display 2"));
+            JPanel b = new GlassPanel(window.uiPalette()); b.setLayout(new BorderLayout()); b.setBorder(BorderFactory.createEmptyBorder(22, 22, 18, 22)); b.add(p);
+            d.setContentPane(b); d.setSize(820, 420); d.setLocation(-4000, 0); d.setVisible(true);
+        });
+        if (!light) {
+            // Switch to light without restarting: nothing dark may remain.
+            Palette palette = window.uiPalette(); palette.light();
+            invoke(window, "refreshTheme"); pump(600);
+            shoot(window.getRootPane(), "8-switched-to-light");
+        }
         window.dispose();
     }
 

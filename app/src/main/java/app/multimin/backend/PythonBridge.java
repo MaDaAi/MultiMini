@@ -26,6 +26,9 @@ public final class PythonBridge implements AutoCloseable {
     private volatile java.util.function.BiConsumer<String,String> restoreTokenHandler=(ignoredPath,ignoredToken)->{};
     public void setRestoreTokenHandler(java.util.function.BiConsumer<String,String> handler){restoreTokenHandler=handler;}
     private volatile java.util.function.BiConsumer<Long,java.awt.image.BufferedImage> thumbnailHandler=(h,i)->{};
+    private volatile java.util.function.BiConsumer<Long,String> appPathHandler=(h,p)->{};
+    /** Receives the program path of each window whose thumbnail was requested (Windows). */
+    public void setAppPathHandler(java.util.function.BiConsumer<Long,String> handler){appPathHandler=handler==null?(h,p)->{}:handler;}
     /** Ask for still previews of these windows; the handler receives one image (or null) per handle. */
     public void requestWindowThumbnails(java.util.List<Long> handles, int width, java.util.function.BiConsumer<Long,java.awt.image.BufferedImage> handler) {
         thumbnailHandler = handler == null ? (h,i)->{} : handler;
@@ -114,7 +117,10 @@ public final class PythonBridge implements AutoCloseable {
                                         try { image=javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(Base64.getDecoder().decode(png.group(1)))); }
                                         catch (Exception ignored) { }
                                     }
-                                    thumbnailHandler.accept(Long.parseLong(handle.group(1)), image);
+                                    long id=Long.parseLong(handle.group(1));
+                                    Matcher exe=Pattern.compile("\"path64\":\"([^\"]*)\"").matcher(line);
+                                    if(exe.find()&&!exe.group(1).isEmpty())appPathHandler.accept(id,new String(Base64.getDecoder().decode(exe.group(1)),StandardCharsets.UTF_8));
+                                    thumbnailHandler.accept(id, image);
                                 }
                             }
                             else if(line.contains("\"event\":\"mac_permissions\"")) {

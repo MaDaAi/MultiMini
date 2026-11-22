@@ -46,20 +46,32 @@ def downscale_bgra(width, height, bgra, max_width):
     return target_w, target_h, bytes(out)
 
 
-def to_event(handle, png):
-    return {"event": "window_thumbnail", "hwnd": int(handle),
-            "png64": base64.b64encode(png).decode("ascii") if png else ""}
+def to_event(handle, png, path=""):
+    event = {"event": "window_thumbnail", "hwnd": int(handle),
+             "png64": base64.b64encode(png).decode("ascii") if png else ""}
+    if path:
+        event["path64"] = base64.b64encode(path.encode("utf-8")).decode("ascii")
+    return event
 
 
-def thumbnail_worker(emit, grab, handles, width):
-    """Emit one window_thumbnail event per handle, off the command thread."""
+def thumbnail_worker(emit, grab, handles, width, describe=None):
+    """Emit one window_thumbnail event per handle, off the command thread.
+
+    `describe(handle)` may return the window's program path (used for its icon).
+    """
     def work():
         for handle in handles:
             try:
                 png = grab(handle, width)
             except Exception:
                 png = None
-            emit(to_event(handle, png))
+            path = ""
+            if describe is not None:
+                try:
+                    path = describe(handle) or ""
+                except Exception:
+                    path = ""
+            emit(to_event(handle, png, path))
     threading.Thread(target=work, name="multimini-thumbnails", daemon=True).start()
 
 
@@ -135,6 +147,36 @@ def windows_thumbnail(hwnd, max_width=320):
         gdi32.DeleteObject(full); gdi32.DeleteObject(thumb)
         gdi32.DeleteDC(full_dc); gdi32.DeleteDC(thumb_dc)
         user32.ReleaseDC(None, screen)
+
+
+def windows_process_path(hwnd):
+    """Full path of the program that owns a window, or "" (Windows only)."""
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(wintypes.HWND(int(hwnd)), ctypes.byref(pid))
+    if not pid.value:
+        return ""
+    process = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not process:
+        return ""
+    try:
+        size = wintypes.DWORD(32768)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(process, 0, buffer, ctypes.byref(size)):
+            return buffer.value
+        return ""
+    finally:
+        kernel32.CloseHandle(process)
 
 
 # ---- macOS -----------------------------------------------------------------

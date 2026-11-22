@@ -40,6 +40,7 @@ public final class MainWindow extends JFrame {
     private final JLabel viewTitle = new JLabel();
     private final JLabel layerTitle = new JLabel("No source selected", SwingConstants.LEFT);
     private final JLabel layerSubtitle = new JLabel(" ");
+    private JComponent sourceBadge;
     private final JLabel backendStatus = new JLabel("Starting capture service…");
     private final JLabel performanceStatus = new JLabel();
     private final JLabel inputKeyHint = new JLabel();
@@ -268,6 +269,8 @@ public final class MainWindow extends JFrame {
         applyUiDefaults();LegalConsent.setPalette(palette);
         buildUi();refreshTheme();
         bindShortcuts();
+        backend.setAppPathHandler(AppIcons::register);
+        AppIcons.onChange(() -> { if (sourceBadge != null) sourceBadge.repaint(); });
         backend.setRestoreTokenHandler((path,token)->SwingUtilities.invokeLater(()->{
             boolean changed=false;
             for(View view:views)for(int i=0;i<view.sources.size();i++){
@@ -551,17 +554,30 @@ public final class MainWindow extends JFrame {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(new EmptyBorder(18, 18, 14, 18));
         panel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        JLabel selectedHeading=sectionLabel("SELECTED SOURCE"); selectedHeading.setMaximumSize(new Dimension(Integer.MAX_VALUE,24)); selectedHeading.setHorizontalAlignment(SwingConstants.LEFT); selectedHeading.setAlignmentX(Component.CENTER_ALIGNMENT); panel.add(selectedHeading);
+        JLabel selectedHeading=sectionLabel("SELECTED SOURCE"); selectedHeading.setMaximumSize(new Dimension(Integer.MAX_VALUE,24)); selectedHeading.setHorizontalAlignment(SwingConstants.LEFT); selectedHeading.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel headerText = transparent(null); headerText.setLayout(new BoxLayout(headerText, BoxLayout.Y_AXIS)); headerText.add(selectedHeading);
+        sourceBadge = new JComponent() {
+            @Override protected void paintComponent(Graphics graphics) {
+                Source source = sourceList.getSelectedValue();
+                if (source == null) return;
+                java.awt.image.BufferedImage icon = source.usesWindowTarget() ? AppIcons.forHandle(source.nativeWindowHandle) : null;
+                AppIcons.paintBadge((Graphics2D) graphics, palette, source.kind, icon, 0, 4, 44);
+            }
+        };
+        sourceBadge.setPreferredSize(new Dimension(44, 52)); sourceBadge.setOpaque(false);
+        JPanel header = transparent(new BorderLayout(10, 0)); header.add(headerText, BorderLayout.CENTER); header.add(sourceBadge, BorderLayout.EAST);
+        header.setAlignmentX(Component.CENTER_ALIGNMENT); header.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
+        panel.add(header);
         layerTitle.setFont(Theme.title(18f));
         layerTitle.setOpaque(false); layerTitle.setForeground(palette.text);
         layerTitle.setBorder(new EmptyBorder(2,2,2,2));
         layerTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
-        layerTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        layerTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
         layerTitle.setOpaque(false);
-        panel.add(layerTitle);
+        headerText.add(layerTitle);
         layerSubtitle.setFont(Theme.regular(12f)); layerSubtitle.setForeground(palette.muted); layerSubtitle.setBorder(new EmptyBorder(0,2,0,2));
-        layerSubtitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20)); layerSubtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
-        panel.add(layerSubtitle);
+        layerSubtitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20)); layerSubtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        headerText.add(layerSubtitle);
         panel.add(Box.createVerticalStrut(20));
         panel.add(centeredSection("APPEARANCE"));
         panel.add(Box.createVerticalStrut(10));
@@ -631,7 +647,10 @@ public final class MainWindow extends JFrame {
     }
 
     private void switchView(View view) { if (multitask) return; activeView = view; for (Map.Entry<View, AbstractButton> entry : viewButtons.entrySet()) entry.getValue().setSelected(entry.getKey() == view); viewTitle.setText(view.name); sourceList.setModel(view.sources); sourceList.setSelectedIndex(Math.min(1, view.sources.size() - 1)); preview.setView(view); }
-    private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(Theme.title(18f)); layerSubtitle.setText(source == null ? "Select a source to edit it" : source.kind.label + (source.visible ? "" : " · hidden") + (source.quickSwapInput ? " · in input cycle" : "")); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
+    private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(Theme.title(18f)); layerSubtitle.setText(source == null ? "Select a source to edit it" : source.kind.label + (source.visible ? "" : " · hidden") + (source.quickSwapInput ? " · in input cycle" : ""));
+        if (sourceBadge != null) sourceBadge.repaint();
+        if (source != null && source.usesWindowTarget() && source.nativeWindowHandle != 0 && AppIcons.forHandle(source.nativeWindowHandle) == null && backend.isReady() && !app.multimin.backend.PlatformSupport.isPortable())
+            backend.requestWindowThumbnails(List.of(source.nativeWindowHandle), 64, (handle, image) -> {}); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
     private void setControlTarget(int index) {
         resetLinuxDirectPresentation();
         if (index < 0 || index >= activeView.sources.size()) return;
@@ -1108,7 +1127,53 @@ public final class MainWindow extends JFrame {
         return result[0];
     }
 
+    /** Display chooser: the window-picker cards with a live snapshot of each monitor. */
     private int chooseDisplayDevice() {
+        GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+        if (devices.length == 0) return -1;
+        GraphicsDevice primary = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+        List<PythonBridge.WindowTarget> displays = new ArrayList<>();
+        for (int i = 0; i < devices.length; i++) {
+            DisplayMode mode = devices[i].getDisplayMode();
+            Rectangle bounds = devices[i].getDefaultConfiguration().getBounds();
+            PythonBridge.WindowTarget item = new PythonBridge.WindowTarget(mode.getWidth() + " × " + mode.getHeight() + (devices[i].equals(primary) ? " · primary" : ""),
+                "Display " + (i + 1), i + 1, bounds.x, bounds.y, bounds.width, bounds.height);
+            displays.add(item);
+        }
+        // Snapshots are taken before the dialog opens so it never appears in them.
+        java.util.Map<Long, java.awt.image.BufferedImage> snapshots = new java.util.HashMap<>();
+        if (!app.multimin.backend.PlatformSupport.isWayland()) {
+            for (int i = 0; i < devices.length; i++) {
+                try {
+                    Rectangle bounds = devices[i].getDefaultConfiguration().getBounds();
+                    java.awt.image.BufferedImage shot = new Robot(devices[i]).createScreenCapture(bounds);
+                    int w = 420, h = Math.max(1, shot.getHeight() * w / Math.max(1, shot.getWidth()));
+                    java.awt.image.BufferedImage small = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB);
+                    Graphics2D g = small.createGraphics(); g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(shot, 0, 0, w, h, null); g.dispose();
+                    snapshots.put((long) (i + 1), small);
+                } catch (Exception | Error ignored) { }
+            }
+        }
+        JDialog dialog = dialog("Choose a display"); JPanel body = dialogBody();
+        JLabel title = new JLabel("Choose a display"); title.setFont(Theme.title(17f)); title.setForeground(palette.text);
+        JPanel intro = transparent(new GridLayout(0, 1, 0, 2)); intro.add(title); intro.add(muted("The whole monitor is shown live in this view")); body.add(intro, BorderLayout.NORTH);
+        WindowPicker picker = new WindowPicker(palette); picker.setDisplayMode(true);
+        picker.setTargets(displays);
+        for (PythonBridge.WindowTarget item : displays) picker.setThumbnail(item.hwnd, snapshots.get(item.hwnd));
+        int initial = 0; for (int i = 0; i < devices.length; i++) if (devices[i].equals(primary)) initial = i;
+        picker.setSelected(displays.get(initial));
+        int[] result = {-1};
+        JButton cancel = toolButton("Cancel", "Close without choosing"); cancel.addActionListener(event -> dialog.dispose());
+        JButton choose = primaryButton("Capture selected display");
+        choose.addActionListener(event -> { if (picker.selected() != null) { result[0] = (int) picker.selected().hwnd - 1; dialog.dispose(); } });
+        picker.onConfirm(choose::doClick);
+        body.add(picker, BorderLayout.CENTER);
+        JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); actions.add(cancel); actions.add(choose); body.add(actions, BorderLayout.SOUTH);
+        dialog.setContentPane(body); dialog.setSize(Math.min(900, 300 + devices.length * 260), 470); dialog.setMinimumSize(new Dimension(520, 400)); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+        return result[0];
+    }
+
+    private int chooseDisplayDeviceList() {
         GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         if (devices.length == 0) return -1;
         JComboBox<String> choices = new JComboBox<>(); choices.getAccessibleContext().setAccessibleName("Display to capture");
@@ -1334,7 +1399,7 @@ public final class MainWindow extends JFrame {
         return true;
     }
     private void applyAccent() { String name = String.valueOf(accentMode.getSelectedItem()); Color color; if ("Red".equals(name)) color = new Color(235, 82, 86); else if ("Orange".equals(name)) color = new Color(241, 145, 64); else if ("Yellow".equals(name)) color = new Color(239, 205, 76); else if ("Green".equals(name)) color = new Color(83, 190, 123); else if ("Purple".equals(name)) color = new Color(161, 111, 224); else if ("White".equals(name)) color = Color.WHITE; else if ("Black".equals(name)) color = new Color(20, 22, 25); else if ("Custom…".equals(name)) color = JColorChooser.showDialog(this, "Choose accent colour", palette.accent); else color = new Color(103, 153, 255); if (color != null) palette.accent = color; refreshTheme(); }
-    private void refreshTheme() { preview.setGuiHelpers(preferences.getBoolean("guiHelpers",true)); if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); retheme(this); for(Window owned:getOwnedWindows()){retheme(owned);owned.repaint();} opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette, preferences.getBoolean("guiHelpers",true))); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
+    private void refreshTheme() { canvasPanel.setBackground(palette.canvas()); preview.setGuiHelpers(preferences.getBoolean("guiHelpers",true)); if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); retheme(this); for(Window owned:getOwnedWindows()){retheme(owned);owned.repaint();} opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette, preferences.getBoolean("guiHelpers",true))); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
     private void retheme(Component component){
         if(component instanceof JComponent helper&&Boolean.TRUE.equals(helper.getClientProperty("gui.helper")))helper.setVisible(preferences.getBoolean("guiHelpers",true));
         if(component.getFont()!=null&&!Theme.isThemeFont(component.getFont()))component.setFont(Theme.regular(component.getFont().getSize2D()).deriveFont(component.getFont().getStyle()));

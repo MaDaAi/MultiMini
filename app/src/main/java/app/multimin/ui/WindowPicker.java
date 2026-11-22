@@ -1,6 +1,7 @@
 package app.multimin.ui;
 
 import app.multimin.backend.PythonBridge;
+import app.multimin.model.Source;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -32,10 +33,15 @@ final class WindowPicker extends JPanel {
     private Consumer<PythonBridge.WindowTarget> onSelect = ignored -> {};
     private Runnable onConfirm = () -> {};
     private String emptyText = "Scanning open windows…";
+    private boolean displayMode;
+    /** Show monitors instead of windows (monitor badge, display wording). */
+    void setDisplayMode(boolean displays) { displayMode = displays; if (searchBar != null) searchBar.setVisible(!displays); revalidate(); grid.repaint(); }
+    private JComponent searchBar;
 
     WindowPicker(Palette palette) {
         super(new BorderLayout(0, 12));
         this.palette = palette;
+        AppIcons.onChange(this::repaint);
         setOpaque(false);
         search.putClientProperty("JTextField.placeholderText", "Search windows");
         search.getAccessibleContext().setAccessibleName("Search windows");
@@ -60,7 +66,7 @@ final class WindowPicker extends JPanel {
             @Override public void focusGained(java.awt.event.FocusEvent e) { searchWrap.repaint(); }
             @Override public void focusLost(java.awt.event.FocusEvent e) { searchWrap.repaint(); }
         });
-        add(searchWrap, BorderLayout.NORTH);
+        add(searchWrap, BorderLayout.NORTH); searchBar = searchWrap;
         grid = new JPanel(null) {
             @Override public Dimension getPreferredSize() {
                 int width = Math.max(CARD_W, scroller == null ? 700 : scroller.getViewport().getWidth());
@@ -131,6 +137,7 @@ final class WindowPicker extends JPanel {
         int slash = Math.max(process.lastIndexOf('/'), process.lastIndexOf('\\'));
         if (slash >= 0) process = process.substring(slash + 1);
         if (process.toLowerCase(Locale.ROOT).endsWith(".exe")) process = process.substring(0, process.length() - 4);
+        if (process.contains(" × ")) return process;  // display resolution line
         if (process.equalsIgnoreCase("ApplicationFrameHost")) return "Windows app";
         if (process.equalsIgnoreCase("javaw") || process.equalsIgnoreCase("java")) return target.title != null && target.title.toLowerCase(Locale.ROOT).startsWith("minecraft") ? "Minecraft" : "Java";
         if (process.isEmpty()) return "Application";
@@ -199,7 +206,7 @@ final class WindowPicker extends JPanel {
                 g.setPaint(new GradientPaint(well.x, well.y, Palette.blend(palette.canvas(), tint, 0.16f), well.x, well.y + well.height, palette.canvas()));
                 g.fill(wellShape);
                 g.setFont(Theme.regular(11.5f)); g.setColor(palette.muted);
-                String note = unavailable.contains(target.hwnd) ? (target.hwnd == 0 ? "Chosen in the desktop picker" : "Minimized or no preview") : "Loading preview…";
+                String note = unavailable.contains(target.hwnd) ? (target.hwnd == 0 ? "Chosen in the desktop picker" : displayMode ? "Preview shows after you choose it" : "Minimized or no preview") : "Loading preview…";
                 FontMetrics m = g.getFontMetrics(); g.drawString(note, well.x + (well.width - m.stringWidth(note)) / 2, well.y + well.height / 2 + 4);
             }
             if (chosen) {
@@ -212,11 +219,16 @@ final class WindowPicker extends JPanel {
             // App badge, title and app name.
             String app = appName(target);
             int by = Math.round(y + ch - 44), bx = Math.round(x + 10);
-            Color badge = badgeColor(app);
-            g.setColor(Palette.blend(palette.card(), badge, 0.85f)); g.fill(Theme.round(bx, by + 4, 28, 28, 8));
-            g.setFont(Theme.semibold(13f)); g.setColor(Color.WHITE);
-            String letter = app.substring(0, 1).toUpperCase(Locale.ROOT); FontMetrics lm = g.getFontMetrics();
-            g.drawString(letter, bx + (28 - lm.stringWidth(letter)) / 2, by + 4 + (28 - lm.getHeight()) / 2 + lm.getAscent());
+            BufferedImage programIcon = displayMode ? null : AppIcons.forHandle(target.hwnd);
+            if (displayMode) AppIcons.paintBadge(g, palette, Source.Kind.DISPLAY, null, bx, by + 4, 28);
+            else if (programIcon != null) AppIcons.paintBadge(g, palette, Source.Kind.WINDOW, programIcon, bx, by + 4, 28);
+            else {
+                Color badge = badgeColor(app);
+                g.setColor(Palette.blend(palette.card(), badge, 0.85f)); g.fill(Theme.round(bx, by + 4, 28, 28, 8));
+                g.setFont(Theme.semibold(13f)); g.setColor(Color.WHITE);
+                String letter = app.substring(0, 1).toUpperCase(Locale.ROOT); FontMetrics lm = g.getFontMetrics();
+                g.drawString(letter, bx + (28 - lm.stringWidth(letter)) / 2, by + 4 + (28 - lm.getHeight()) / 2 + lm.getAscent());
+            }
             int tx = bx + 38, tw = Math.round(x + cw - 10) - tx;
             g.setFont(Theme.semibold(12.5f)); g.setColor(palette.text);
             g.drawString(ellipsize(g, target.title + (target.windowNumber > 0 ? " (" + target.windowNumber + ")" : ""), tw), tx, by + 16);
