@@ -447,6 +447,25 @@ class LinuxService:
                 self.emit({"event": "image_file", "path64": base64.b64encode(path.encode()).decode("ascii")})
             threading.Thread(target=choose, name="multimini-file-picker", daemon=True).start()
             return {"event": "file_picker_opened"}
+        if command == "window_thumbnails":
+            from .thumbnails import thumbnail_request
+            handles, width = thumbnail_request(message)
+            def grab(handle, width):
+                # X11/XWayland windows only; native Wayland windows need the portal.
+                xid = handle if 0 < handle < KWIN_HANDLE_BASE else self.kwin_xids.get(handle, 0)
+                if not xid:
+                    return None
+                from .linux_xshm import XShmGrabber
+                from .thumbnails import downscale_bgra, encode_png
+                grabber = XShmGrabber(xid)
+                try:
+                    w, h, pixels = grabber.grab()
+                finally:
+                    grabber.close()
+                return encode_png(*downscale_bgra(w, h, pixels, width))
+            from .thumbnails import thumbnail_worker
+            thumbnail_worker(self.emit, grab, handles, width)
+            return {"event": "window_thumbnails_started"}
         if command == "list_windows":
             platform=message.get("platform","all")
             rows=self.x11.windows() if self.x11 and platform in ("all","x11") else []

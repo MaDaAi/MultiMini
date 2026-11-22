@@ -25,6 +25,15 @@ public final class PythonBridge implements AutoCloseable {
     private volatile Consumer<String> captureStoppedHandler=ignored->{};
     private volatile java.util.function.BiConsumer<String,String> restoreTokenHandler=(ignoredPath,ignoredToken)->{};
     public void setRestoreTokenHandler(java.util.function.BiConsumer<String,String> handler){restoreTokenHandler=handler;}
+    private volatile java.util.function.BiConsumer<Long,java.awt.image.BufferedImage> thumbnailHandler=(h,i)->{};
+    /** Ask for still previews of these windows; the handler receives one image (or null) per handle. */
+    public void requestWindowThumbnails(java.util.List<Long> handles, int width, java.util.function.BiConsumer<Long,java.awt.image.BufferedImage> handler) {
+        thumbnailHandler = handler == null ? (h,i)->{} : handler;
+        if (handles.isEmpty()) return;
+        StringBuilder list = new StringBuilder();
+        for (Long handle : handles) { if (list.length() > 0) list.append(','); list.append(handle); }
+        send("{\"command\":\"window_thumbnails\",\"hwnds\":[" + list + "],\"width\":" + width + "}");
+    }
     /** macOS privacy permission status from the backend. */
     public interface MacPermissionListener { void update(boolean screen, boolean accessibility, boolean input); }
     private volatile MacPermissionListener macPermissionHandler=(s,a,i)->{};
@@ -96,7 +105,19 @@ public final class PythonBridge implements AutoCloseable {
                         status.accept(PlatformSupport.isPortable() ? PlatformSupport.osLabel() + " capture ready · choose a source to share" : "Input passthrough ready · live display active");
                         flushPendingCommands();
                         while ((line = reader.readLine()) != null) {
-                            if(line.contains("\"event\":\"mac_permissions\"")) {
+                            if(line.contains("\"event\":\"window_thumbnail\"")) {
+                                Matcher handle=Pattern.compile("\"hwnd\":(\\d+)").matcher(line);
+                                Matcher png=Pattern.compile("\"png64\":\"([^\"]*)\"").matcher(line);
+                                if(handle.find()) {
+                                    java.awt.image.BufferedImage image=null;
+                                    if(png.find()&&!png.group(1).isEmpty()) {
+                                        try { image=javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(Base64.getDecoder().decode(png.group(1)))); }
+                                        catch (Exception ignored) { }
+                                    }
+                                    thumbnailHandler.accept(Long.parseLong(handle.group(1)), image);
+                                }
+                            }
+                            else if(line.contains("\"event\":\"mac_permissions\"")) {
                                 macPermissionHandler.update(line.contains("\"screen\":true"),line.contains("\"accessibility\":true"),line.contains("\"input\":true"));
                             }
                             else if(line.contains("\"event\":\"mac_permissions_needed\"")) quickSwapHandler.accept("mac_permissions_needed");

@@ -38,7 +38,8 @@ public final class MainWindow extends JFrame {
     private final JPanel topBar = new GlassPanel(palette);
     private final JList<Source> sourceList = new JList<>();
     private final JLabel viewTitle = new JLabel();
-    private final JLabel layerTitle = new JLabel("No source selected", SwingConstants.CENTER);
+    private final JLabel layerTitle = new JLabel("No source selected", SwingConstants.LEFT);
+    private final JLabel layerSubtitle = new JLabel(" ");
     private final JLabel backendStatus = new JLabel("Starting capture service…");
     private final JLabel performanceStatus = new JLabel();
     private final JLabel inputKeyHint = new JLabel();
@@ -434,12 +435,12 @@ public final class MainWindow extends JFrame {
     public void checkForUpdatesOnLaunch(){GithubUpdater.checkOnLaunch(this,()->{if(!workspaceWritable)throw new IllegalStateException("Recover your workspace before updating");try{workspaceStore.save(views,activeView);}catch(java.io.IOException error){throw new IllegalStateException("Workspace could not be saved",error);}},()->{shutdownServices();dispose();System.exit(0);});}
     private void buildUi() {
         root.setBackground(palette.background); configuration.setOpaque(false); topBar.setLayout(new BoxLayout(topBar, BoxLayout.X_AXIS));
-        topBar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, palette.line), new EmptyBorder(10, 18, 10, 18)));
-        JLabel brand = new JLabel("MultiMini"); brand.setFont(brand.getFont().deriveFont(Font.BOLD, 15f));
+        topBar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, palette.line), new EmptyBorder(9, 16, 9, 16)));
+        JLabel brand = new JLabel("MultiMini"); brand.setFont(Theme.title(15f));
         if (appLogo != null) { brand.setIcon(appLogo); brand.setIconTextGap(10); }
         topBar.add(brand); topBar.add(Box.createHorizontalStrut(25));
-        for (View view : views) { JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); installViewMenu(tab,view); viewButtons.put(view, tab); topBar.add(tab); }
-        JButton addView = quietButton("＋"); addView.addActionListener(event -> addView()); topBar.add(addView); topBar.add(Box.createHorizontalGlue());
+        for (View view : views) { JButton tab = quietButton(view.name); tab.addActionListener(event -> switchView(view)); installViewMenu(tab,view); viewButtons.put(view, tab); topBar.add(tab); topBar.add(Box.createHorizontalStrut(4)); }
+        JButton addView = quietButton("＋"); addView.setToolTipText("Add a view"); addView.addActionListener(event -> addView()); topBar.add(addView); topBar.add(Box.createHorizontalGlue());
         sourcesPanelRef = sourcesPanel(); propertiesPanelRef = propertiesPanel();
         configuration.add(new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
             new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sourcesPanelRef, centerPanel()),
@@ -450,10 +451,10 @@ public final class MainWindow extends JFrame {
     }
 
     private JPanel sourcesPanel() {
-        GlassPanel panel = new GlassPanel(palette); panel.setPreferredSize(new Dimension(265, 0)); panel.setMinimumSize(new Dimension(70, 0)); panel.setLayout(new BorderLayout(0, 10)); panel.setBorder(new EmptyBorder(12, 8, 8, 8));
-        JPanel heading = transparent(new BorderLayout()); JPanel names = transparent(new GridLayout(0, 1)); names.add(muted("CURRENT VIEW")); viewTitle.setFont(viewTitle.getFont().deriveFont(Font.BOLD, 20f)); names.add(viewTitle); heading.add(names); JButton add = primaryButton("＋ Add"); add.setPreferredSize(new Dimension(76, 32)); add.addActionListener(event -> addSource()); JPanel addWrap = transparent(new FlowLayout(FlowLayout.RIGHT, 0, 4)); addWrap.add(add); heading.add(addWrap, BorderLayout.EAST); panel.add(heading, BorderLayout.NORTH);
+        GlassPanel panel = new GlassPanel(palette); panel.setPreferredSize(new Dimension(265, 0)); panel.setMinimumSize(new Dimension(70, 0)); panel.setLayout(new BorderLayout(0, 12)); panel.setBorder(new EmptyBorder(16, 10, 10, 10));
+        JPanel heading = transparent(new BorderLayout()); JPanel names = transparent(new GridLayout(0, 1, 0, 2)); names.add(sectionLabel("CURRENT VIEW")); viewTitle.setFont(Theme.title(20f)); names.add(viewTitle); heading.add(names); heading.setBorder(new EmptyBorder(0, 4, 0, 0)); JButton add = primaryButton("＋ Add"); add.setPreferredSize(new Dimension(80, 34)); add.addActionListener(event -> addSource()); JPanel addWrap = transparent(new FlowLayout(FlowLayout.RIGHT, 0, 4)); addWrap.add(add); heading.add(addWrap, BorderLayout.EAST); panel.add(heading, BorderLayout.NORTH);
         sourceList.getAccessibleContext().setAccessibleName("Sources in the current view");
-        sourceList.setModel(activeView.sources); sourceList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); sourceList.setFixedCellHeight(54); sourceList.setDragEnabled(true); sourceList.setDropMode(DropMode.INSERT); sourceList.setTransferHandler(new SourceReorderHandler()); sourceList.setCellRenderer(new SourceCellRenderer(palette, preferences.getBoolean("guiHelpers",true))); sourceList.addListSelectionListener(event -> syncSelection());
+        sourceList.setModel(activeView.sources); sourceList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); sourceList.setFixedCellHeight(60); sourceList.setDragEnabled(true); sourceList.setDropMode(DropMode.INSERT); sourceList.setTransferHandler(new SourceReorderHandler()); sourceList.setCellRenderer(new SourceCellRenderer(palette, preferences.getBoolean("guiHelpers",true))); sourceList.addListSelectionListener(event -> syncSelection());
         sourceList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "remove-source");
         sourceList.getActionMap().put("remove-source", new AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent event) { removeSelected(); } });
         sourceList.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "rename-source");
@@ -478,23 +479,23 @@ public final class MainWindow extends JFrame {
         JScrollPane scroller = new JScrollPane(sourceList); scroller.setBorder(BorderFactory.createEmptyBorder());
         styleScrollBar(scroller.getVerticalScrollBar()); styleScrollBar(scroller.getHorizontalScrollBar());
         panel.add(scroller, BorderLayout.CENTER);
-        JPanel footer = transparent(new BorderLayout(0, 8)); JPanel helperCopy=transparent(new GridLayout(0,1,0,6)); helperCopy.putClientProperty("gui.helper",true); JPanel controls = transparent(new GridLayout(1, 0, 4, 0));
+        JPanel footer = transparent(new BorderLayout(0, 10)); JPanel helperCopy=transparent(new GridLayout(0,1,0,4)); helperCopy.setBorder(new EmptyBorder(0,4,0,4)); helperCopy.putClientProperty("gui.helper",true); JPanel controls = cardPanel(new GridLayout(1, 0, 2, 0)); controls.setBorder(new EmptyBorder(3,3,3,3));
         JButton plus = toolButton("＋", "Add source"); plus.addActionListener(event -> addSource()); controls.add(plus);
         JButton minus = toolButton("−", "Remove source"); minus.addActionListener(event -> removeSelected()); controls.add(minus);
         JButton duplicate = toolButton("⧉", "Duplicate source"); duplicate.addActionListener(event -> duplicateSelected()); controls.add(duplicate);
         JButton visibility = toolButton("◉", "Show or hide selected source"); visibility.addActionListener(event -> toggleSelectedVisibility()); controls.add(visibility);
         JButton up = toolButton("↑", "Move source up"); up.addActionListener(event -> moveSelected(-1)); controls.add(up);
         JButton down = toolButton("↓", "Move source down"); down.addActionListener(event -> moveSelected(1)); controls.add(down);
-        for(Component control:controls.getComponents())if(control instanceof JComponent button)button.putClientProperty("toolbar.outline",true);
+        for(Component control:controls.getComponents())if(control instanceof JComponent button){button.putClientProperty("toolbar.outline",true);button.putClientProperty("appearance.ghost",true);}
         footer.add(controls,BorderLayout.NORTH); footer.add(helperCopy,BorderLayout.CENTER);
-        JTextArea sourceHint=new JTextArea("Drag to reorder · Double-click to configure\nF2 to rename");sourceHint.setOpaque(false);sourceHint.setEditable(false);sourceHint.setFocusable(false);sourceHint.setLineWrap(true);sourceHint.setWrapStyleWord(true);sourceHint.setForeground(palette.muted);sourceHint.setFont(UIManager.getFont("Label.font").deriveFont(11f));helperCopy.add(sourceHint);
-        inputKeyHint.setForeground(palette.muted); layerKeyHint.setForeground(palette.muted); updateHotkeyHints();
+        JTextArea sourceHint=new JTextArea("Drag to reorder · Double-click to configure\nF2 to rename");sourceHint.setOpaque(false);sourceHint.setEditable(false);sourceHint.setFocusable(false);sourceHint.setLineWrap(true);sourceHint.setWrapStyleWord(true);sourceHint.setForeground(palette.muted);sourceHint.setFont(Theme.regular(11f));helperCopy.add(sourceHint);
+        inputKeyHint.setForeground(palette.muted); layerKeyHint.setForeground(palette.muted); inputKeyHint.setFont(Theme.regular(11f)); layerKeyHint.setFont(Theme.regular(11f)); updateHotkeyHints();
         helperCopy.add(inputKeyHint); helperCopy.add(layerKeyHint);
         panel.add(footer, BorderLayout.SOUTH); switchView(activeView); return panel;
     }
 
     private JPanel centerPanel() {
-        canvasPanel.setMinimumSize(new Dimension(100,0));canvasPanel.setOpaque(false); JPanel toolbar = transparent(new BorderLayout()); toolbar.setBorder(new EmptyBorder(15, 22, 8, 22)); JLabel title = new JLabel("PREVIEW   ·   current composition"); title.setForeground(palette.muted); toolbar.add(title); canvasPanel.add(toolbar, BorderLayout.NORTH); canvasPanel.add(preview, BorderLayout.CENTER); backendStatus.setForeground(palette.muted); backendStatus.setBorder(new EmptyBorder(6, 22, 2, 22)); performanceStatus.setForeground(palette.muted); performanceStatus.setFont(performanceStatus.getFont().deriveFont(10f)); performanceStatus.setBorder(new EmptyBorder(0, 22, 7, 22)); debugPanel.setOpaque(false); debugPanel.add(backendStatus); debugPanel.add(performanceStatus); debugPanel.setVisible(preferences.getBoolean("showDebug", preferences.getBoolean("showPerformanceStats", false))); performanceStatus.setVisible(debugPanel.isVisible()); canvasPanel.add(debugPanel, BorderLayout.SOUTH); return canvasPanel;
+        canvasPanel.setMinimumSize(new Dimension(100,0));canvasPanel.setOpaque(true);canvasPanel.setBackground(palette.canvas()); JPanel toolbar = transparent(new BorderLayout()); toolbar.setBorder(new EmptyBorder(15, 22, 8, 22)); JLabel title = new JLabel("Preview"); title.setFont(Theme.semibold(13f)); title.setForeground(palette.text); JLabel subtitle = muted("  ·  what multitask mode will show"); subtitle.setFont(Theme.regular(12f)); JPanel titles = transparent(new FlowLayout(FlowLayout.LEFT, 0, 0)); titles.add(title); titles.add(subtitle); toolbar.add(titles); canvasPanel.add(toolbar, BorderLayout.NORTH); canvasPanel.add(preview, BorderLayout.CENTER); backendStatus.setForeground(palette.muted); backendStatus.setBorder(new EmptyBorder(6, 22, 2, 22)); performanceStatus.setForeground(palette.muted); performanceStatus.setFont(performanceStatus.getFont().deriveFont(10f)); performanceStatus.setBorder(new EmptyBorder(0, 22, 7, 22)); debugPanel.setOpaque(false); debugPanel.add(backendStatus); debugPanel.add(performanceStatus); debugPanel.setVisible(preferences.getBoolean("showDebug", preferences.getBoolean("showPerformanceStats", false))); performanceStatus.setVisible(debugPanel.isVisible()); canvasPanel.add(debugPanel, BorderLayout.SOUTH); return canvasPanel;
     }
 
     private JSplitPane sidebarOuter,sidebarInner;
@@ -508,7 +509,8 @@ public final class MainWindow extends JFrame {
     }
     private void restoreSidebarWidths(){
         if(sidebarWidthsRestored||sidebarOuter.getWidth()<250||!configuration.isShowing())return;
-        int right=Math.clamp(preferences.getInt("rightPanelWidth",300),70,Math.max(70,sidebarOuter.getWidth()-180));
+        // Open at a respectable inspector width; a very wide saved value is capped.
+        int right=Math.clamp(Math.min(preferences.getInt("rightPanelWidth",300),380),70,Math.max(70,sidebarOuter.getWidth()-180));
         sidebarOuter.setDividerLocation(sidebarOuter.getWidth()-right-sidebarOuter.getDividerSize());sidebarOuter.doLayout();
         int left=Math.clamp(preferences.getInt("leftPanelWidth",265),70,Math.max(70,sidebarInner.getWidth()-110));sidebarInner.setDividerLocation(left);sidebarInner.doLayout();sidebarWidthsRestored=true;
     }
@@ -517,6 +519,14 @@ public final class MainWindow extends JFrame {
         sidebarWidthSaveTimer=new javax.swing.Timer(350,event->saveSidebarWidths());sidebarWidthSaveTimer.setRepeats(false);
         java.beans.PropertyChangeListener widthChanged=event->{if(sidebarWidthsRestored&&configuration.isShowing())sidebarWidthSaveTimer.restart();};inner.addPropertyChangeListener("dividerLocation",widthChanged);outer.addPropertyChangeListener("dividerLocation",widthChanged);
         configuration.addHierarchyListener(event->{if((event.getChangeFlags()&java.awt.event.HierarchyEvent.SHOWING_CHANGED)!=0&&configuration.isShowing())SwingUtilities.invokeLater(this::restoreSidebarWidths);});
+        // Window resizes (maximize, restore, monitor changes) give the extra space to the
+        // preview; the inspector keeps the width the user chose.
+        outer.addComponentListener(new java.awt.event.ComponentAdapter(){@Override public void componentResized(java.awt.event.ComponentEvent event){
+            if(!sidebarWidthsRestored||outer.getWidth()<250)return;
+            int right=Math.clamp(Math.min(preferences.getInt("rightPanelWidth",300),380),70,Math.max(70,outer.getWidth()-180));
+            int location=outer.getWidth()-right-outer.getDividerSize();
+            if(outer.getDividerLocation()!=location)outer.setDividerLocation(location);
+        }});
         for (JSplitPane split : List.of(inner, outer)) {
             split.setContinuousLayout(true); split.setOneTouchExpandable(false); split.setBorder(null);
             split.setDividerSize(4); split.setResizeWeight(split == inner ? 0.0 : 1.0);
@@ -539,16 +549,19 @@ public final class MainWindow extends JFrame {
     private JComponent propertiesPanel() {
         GlassPanel panel = new GlassPanel(palette);
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBorder(new EmptyBorder(16, 16, 14, 16));
+        panel.setBorder(new EmptyBorder(18, 18, 14, 18));
         panel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        JLabel selectedHeading=muted("SELECTED SOURCE"); selectedHeading.setMaximumSize(new Dimension(Integer.MAX_VALUE,24)); selectedHeading.setHorizontalAlignment(SwingConstants.LEFT); selectedHeading.setAlignmentX(Component.CENTER_ALIGNMENT); panel.add(selectedHeading);
-        layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20));
+        JLabel selectedHeading=sectionLabel("SELECTED SOURCE"); selectedHeading.setMaximumSize(new Dimension(Integer.MAX_VALUE,24)); selectedHeading.setHorizontalAlignment(SwingConstants.LEFT); selectedHeading.setAlignmentX(Component.CENTER_ALIGNMENT); panel.add(selectedHeading);
+        layerTitle.setFont(Theme.title(18f));
         layerTitle.setOpaque(false); layerTitle.setForeground(palette.text);
         layerTitle.setBorder(new EmptyBorder(2,2,2,2));
         layerTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
         layerTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
         layerTitle.setOpaque(false);
         panel.add(layerTitle);
+        layerSubtitle.setFont(Theme.regular(12f)); layerSubtitle.setForeground(palette.muted); layerSubtitle.setBorder(new EmptyBorder(0,2,0,2));
+        layerSubtitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 20)); layerSubtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.add(layerSubtitle);
         panel.add(Box.createVerticalStrut(20));
         panel.add(centeredSection("APPEARANCE"));
         panel.add(Box.createVerticalStrut(10));
@@ -606,7 +619,7 @@ public final class MainWindow extends JFrame {
         modeActions.setBorder(new EmptyBorder(12, 0, 0, 0));
         modeActions.setMaximumSize(new Dimension(Integer.MAX_VALUE, 112)); modeActions.setAlignmentX(Component.CENTER_ALIGNMENT);
         JButton start = primaryButton("Start multitasking"); start.addActionListener(event -> setMultitask(true));
-        start.setPreferredSize(new Dimension(0, 38)); modeActions.add(start, BorderLayout.NORTH);
+        start.setFont(Theme.semibold(14f)); start.setPreferredSize(new Dimension(0, 44)); modeActions.add(start, BorderLayout.NORTH);
         JPanel utilities = transparent(new GridLayout(1, 3, 6, 0));
         JButton snapshot = compactAction("Snapshot", VectorIcon.Type.CAMERA); snapshot.addActionListener(event -> takeSnapshot()); utilities.add(snapshot);
         JButton galleryButton = compactAction("Gallery", VectorIcon.Type.IMAGE); galleryButton.addActionListener(event -> openGallery()); utilities.add(galleryButton);
@@ -618,7 +631,7 @@ public final class MainWindow extends JFrame {
     }
 
     private void switchView(View view) { if (multitask) return; activeView = view; for (Map.Entry<View, AbstractButton> entry : viewButtons.entrySet()) entry.getValue().setSelected(entry.getKey() == view); viewTitle.setText(view.name); sourceList.setModel(view.sources); sourceList.setSelectedIndex(Math.min(1, view.sources.size() - 1)); preview.setView(view); }
-    private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20)); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
+    private void syncSelection() { Source source = sourceList.getSelectedValue(); layerTitle.setText(source == null ? "No source selected" : source.name); layerTitle.setFont(Theme.title(18f)); layerSubtitle.setText(source == null ? "Select a source to edit it" : source.kind.label + (source.visible ? "" : " · hidden") + (source.quickSwapInput ? " · in input cycle" : "")); layerTitle.setForeground(palette.text); if (source != null) { opacity.setValue(source.opacity); scale.setValue(source.scale); preview.setSelectedIndex(sourceList.getSelectedIndex()); } }
     private void setControlTarget(int index) {
         resetLinuxDirectPresentation();
         if (index < 0 || index >= activeView.sources.size()) return;
@@ -1045,7 +1058,7 @@ public final class MainWindow extends JFrame {
         JPanel heading = transparent(new GridLayout(0, 1, 0, 7));
         heading.add(sectionTitle("DETECTED WINDOWS"));
         heading.add(propertyLabel("Source name"));
-        JTextField sourceName = new JTextField(); sourceName.getAccessibleContext().setAccessibleName("Source name"); sourceName.setForeground(palette.text); sourceName.setBackground(palette.controlSurface()); sourceName.setOpaque(true); sourceName.setCaretColor(palette.text); sourceName.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line), new EmptyBorder(7, 9, 7, 9))); sourceName.setPreferredSize(new Dimension(0, 34)); heading.add(sourceName); body.add(heading, BorderLayout.NORTH);
+        JTextField sourceName = new JTextField(); sourceName.getAccessibleContext().setAccessibleName("Source name"); sourceName.setForeground(palette.text); sourceName.setBackground(palette.controlSurface()); sourceName.setOpaque(true); sourceName.setCaretColor(palette.text); sourceName.setFont(Theme.regular(13.5f)); sourceName.setBorder(BorderFactory.createCompoundBorder(new ControlBorder(palette), new EmptyBorder(7, 9, 7, 9))); sourceName.setPreferredSize(new Dimension(0, 34)); heading.add(sourceName); body.add(heading, BorderLayout.NORTH);
         boolean[] manualName = {false}, settingSuggestedName = {false};
         sourceName.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             private void changed() { if (!settingSuggestedName[0]) manualName[0] = true; }
@@ -1061,14 +1074,20 @@ public final class MainWindow extends JFrame {
                 settingSuggestedName[0] = true; sourceName.setText(automaticWindowSourceName(selected)); settingSuggestedName[0] = false;
             }
         });
-        JLabel status = new JLabel("Scanning…"); status.setForeground(palette.muted);
-        JButton refresh = toolButton("Scan again", "Refresh the list of open windows");
+        JLabel status = new JLabel("Scanning…"); status.setForeground(palette.muted); status.setFont(Theme.regular(12f));
+        JButton refresh = toolButton("Refresh", "Refresh the list of open windows");
+        WindowPicker picker = new WindowPicker(palette);
+        JButton[] confirmButton = {null};
+        picker.onSelect(target -> windows.setSelectedItem(target));
+        picker.onConfirm(() -> { if (confirmButton[0] != null) confirmButton[0].doClick(); });
         Runnable scan = () -> {
             status.setText("Scanning open windows…"); refresh.setEnabled(false);
             backend.requestWindowList(found -> SwingUtilities.invokeLater(() -> {
                 DefaultComboBoxModel<PythonBridge.WindowTarget> model = new DefaultComboBoxModel<>();
                 for (PythonBridge.WindowTarget item : found) model.addElement(item);
                 windows.setModel(model);
+                picker.setTargets(found); picker.setSelected((PythonBridge.WindowTarget) windows.getSelectedItem());
+                backend.requestWindowThumbnails(found.stream().map(target -> target.hwnd).toList(), 360, picker::setThumbnail);
                 if(!manualName[0] && windows.getSelectedItem() instanceof PythonBridge.WindowTarget selected) {
                     settingSuggestedName[0]=true;sourceName.setText(automaticWindowSourceName(selected));settingSuggestedName[0]=false;
                 }
@@ -1077,13 +1096,15 @@ public final class MainWindow extends JFrame {
             }),nativeWayland?"wayland":"x11");
         };
         refresh.addActionListener(event -> scan.run());
-        JPanel row = transparent(new BorderLayout(8, 0)); row.add(windows, BorderLayout.CENTER); row.add(refresh, BorderLayout.EAST);
-        JPanel center = transparent(new BorderLayout(0, 8)); center.add(row, BorderLayout.NORTH); center.add(status, BorderLayout.CENTER); body.add(center, BorderLayout.CENTER);
+        JPanel row = transparent(new BorderLayout(8, 0)); row.add(status, BorderLayout.CENTER); row.add(refresh, BorderLayout.EAST);
+        JPanel center = transparent(new BorderLayout(0, 10)); center.add(row, BorderLayout.NORTH); center.add(picker, BorderLayout.CENTER); body.add(center, BorderLayout.CENTER);
         PythonBridge.WindowTarget[] result = {null};
         JButton cancel = toolButton("Cancel", "Close without adding a source"); cancel.addActionListener(event -> dialog.dispose());
-        JButton select = primaryButton("Capture selected window"); select.addActionListener(event -> { result[0] = (PythonBridge.WindowTarget) windows.getSelectedItem(); if (result[0] != null && !sourceName.getText().trim().isEmpty()) { pendingWindowSourceName = sourceName.getText().trim(); pendingWindowNameManual = manualName[0]; dialog.dispose(); } });
+        JButton select = primaryButton("Capture selected window"); confirmButton[0] = select; select.addActionListener(event -> { result[0] = (PythonBridge.WindowTarget) windows.getSelectedItem(); if (result[0] != null && !sourceName.getText().trim().isEmpty()) { pendingWindowSourceName = sourceName.getText().trim(); pendingWindowNameManual = manualName[0]; dialog.dispose(); } });
         JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); actions.add(cancel); actions.add(select); body.add(actions, BorderLayout.SOUTH);
-        dialog.setContentPane(body); dialog.setSize(600, 300); dialog.setMinimumSize(new Dimension(520, 280)); dialog.setLocationRelativeTo(this); scan.run(); dialog.setVisible(true);
+        JPanel nameRow = transparent(new BorderLayout(10, 0)); JLabel nameLabel = propertyLabel("Source name"); nameRow.add(nameLabel, BorderLayout.WEST); nameRow.add(sourceName, BorderLayout.CENTER);
+        heading.removeAll(); JLabel pickTitle = new JLabel("Choose a window"); pickTitle.setFont(Theme.title(17f)); pickTitle.setForeground(palette.text); heading.add(pickTitle); heading.add(nameRow);
+        dialog.setContentPane(body); dialog.setSize(900, 680); dialog.setMinimumSize(new Dimension(620, 480)); dialog.setLocationRelativeTo(this); scan.run(); dialog.setVisible(true);
         return result[0];
     }
 
@@ -1113,13 +1134,15 @@ public final class MainWindow extends JFrame {
         body.setBackground(palette.panel);
         body.setBorder(new EmptyBorder(12,12,12,12));
         JTabbedPane tabs = new JTabbedPane(JTabbedPane.LEFT);
-        tabs.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        tabs.setFont(Theme.regular(13.5f));
         tabs.setForeground(palette.text); tabs.setBackground(palette.background);
         tabs.setUI(new javax.swing.plaf.basic.BasicTabbedPaneUI() {
-            @Override protected void installDefaults(){super.installDefaults();tabInsets=new Insets(14,18,14,24);contentBorderInsets=new Insets(16,20,16,16);}
-            @Override protected int calculateTabWidth(int placement,int index,FontMetrics metrics){return 150;}
-            @Override protected void paintTabBackground(Graphics graphics,int placement,int index,int x,int y,int w,int h,boolean selected){Graphics2D g=(Graphics2D)graphics.create();g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);g.setColor(selected?palette.selectionSurface():palette.background);g.fillRoundRect(x,y,w-6,h-4,10,10);if(selected){g.setColor(palette.controlAccent());g.fillRoundRect(x,y+10,3,h-24,3,3);}g.dispose();}
-            @Override protected void paintText(Graphics g,int placement,Font font,FontMetrics metrics,int index,String title,Rectangle bounds,boolean selected){g.setFont(font.deriveFont(selected?Font.BOLD:Font.PLAIN));g.setColor(palette.text);g.drawString(title,bounds.x,bounds.y+metrics.getAscent());}
+            @Override protected void installDefaults(){super.installDefaults();tabInsets=new Insets(11,14,11,20);contentBorderInsets=new Insets(16,20,16,16);tabAreaInsets=new Insets(4,2,4,10);}
+            @Override protected int calculateTabWidth(int placement,int index,FontMetrics metrics){return 168;}
+            @Override protected int calculateTabHeight(int placement,int index,int fontHeight){return 40;}
+            @Override protected void paintTabArea(Graphics graphics,int placement,int selectedIndex){Graphics2D g=Theme.quality(graphics);g.setColor(palette.background);g.fillRect(0,0,calculateTabAreaWidth(placement,runCount,maxTabWidth)+2,tabs.getHeight());g.dispose();super.paintTabArea(graphics,placement,selectedIndex);}
+            @Override protected void paintTabBackground(Graphics graphics,int placement,int index,int x,int y,int w,int h,boolean selected){Graphics2D g=Theme.quality(graphics);if(selected){g.setColor(palette.accentTint(palette.panel,palette.isLight()?0.12f:0.20f));g.fill(Theme.round(x+4,y+2,w-12,h-4,Theme.RADIUS));g.setColor(palette.accent);g.fill(Theme.round(x+4,y+11,3,h-22,3));}else if(getRolloverTab()==index){g.setColor(palette.hover(palette.background));g.fill(Theme.round(x+4,y+2,w-12,h-4,Theme.RADIUS));}g.dispose();}
+            @Override protected void paintText(Graphics graphics,int placement,Font font,FontMetrics metrics,int index,String title,Rectangle bounds,boolean selected){Graphics2D g=Theme.quality(graphics);VectorIcon.Type type=title.startsWith("General")?VectorIcon.Type.GEAR:title.startsWith("Controls")?VectorIcon.Type.MOUSE:title.startsWith("Performance")?VectorIcon.Type.BOLT:VectorIcon.Type.POINTER;Rectangle tab=rects[index];Color color=selected?palette.text:Palette.blend(palette.muted,palette.text,0.3f);paintSettingsIcon(g,title,tab.x+19,tab.y+(tab.height-16)/2,color);g.setFont(selected?Theme.semibold(13.5f):Theme.regular(13.5f));g.setColor(color);FontMetrics m=g.getFontMetrics();g.drawString(title,tab.x+46,tab.y+(tab.height-m.getHeight())/2+m.getAscent());g.dispose();}
             @Override protected void paintTabBorder(Graphics g,int p,int i,int x,int y,int w,int h,boolean selected){}
             @Override protected void paintContentBorder(Graphics g,int placement,int selected){
                 if(selected<0)return;
@@ -1127,16 +1150,16 @@ public final class MainWindow extends JFrame {
                 g.setColor(palette.panel);g.fillRect(r.x-18,r.y-14,r.width+32,r.height+28);
                 g.setColor(palette.line);g.drawLine(r.x-20,0,r.x-20,tabs.getHeight());
             }
-            @Override protected void paintFocusIndicator(Graphics g,int p,Rectangle[] r,int i,Rectangle icon,Rectangle text,boolean selected){if(tabs.hasFocus()&&selected){g.setColor(palette.controlAccent());g.drawRoundRect(r[i].x+2,r[i].y+2,r[i].width-10,r[i].height-8,8,8);}}
+            @Override protected void paintFocusIndicator(Graphics g,int p,Rectangle[] r,int i,Rectangle icon,Rectangle text,boolean selected){if(tabs.hasFocus()&&selected){Graphics2D a=Theme.quality(g);a.setColor(palette.controlAccent());a.draw(Theme.round(r[i].x+3,r[i].y+1,r[i].width-10,r[i].height-2,Theme.RADIUS));a.dispose();}}
         });
         JPanel fields = settingsPage(); JScrollPane generalScroll=new JScrollPane(fields); generalScroll.setBorder(null);generalScroll.setOpaque(false);generalScroll.getViewport().setOpaque(false);generalScroll.getVerticalScrollBar().setUnitIncrement(20);styleScrollBar(generalScroll.getVerticalScrollBar());tabs.addTab("General",generalScroll);
         fields.setBorder(new EmptyBorder(2, 0, 8, 0));
         fields.add(settingsGroup("Application"));
-        JLabel version = new JLabel(System.getProperty("jpackage.app-version", "Development")); version.setForeground(palette.text); version.setFont(version.getFont().deriveFont(Font.BOLD));
+        JLabel version = new JLabel(System.getProperty("jpackage.app-version", "Development")); version.setForeground(palette.text); version.setFont(Theme.semibold(13.5f)); version.setHorizontalAlignment(SwingConstants.RIGHT);
         String buildNote = Boolean.getBoolean("multimin.dev.gameCapture") || app.multimin.backend.PlatformSupport.isPortable() ? "Experimental capture features enabled" : "Safety build";
         if (app.multimin.backend.PlatformSupport.isPortable()) buildNote = app.multimin.backend.PlatformSupport.osStatus() + " · " + buildNote;
         fields.add(settingsRow(app.multimin.backend.PlatformSupport.osLabel() + " Build", buildNote, version));
-        JButton updates = quietButton("Updates…");
+        JButton updates = toolButton("Updates…", "Check GitHub for a newer version");
         updates.addActionListener(event -> GithubUpdater.show(this, () -> { if(!workspaceWritable) throw new IllegalStateException("Recover your workspace before updating"); try { workspaceStore.save(views,activeView); } catch(java.io.IOException error) { throw new IllegalStateException("Workspace could not be saved",error); } }, () -> { shutdownServices(); dispose(); System.exit(0); }));
         fields.add(settingsRow("Updates", "Private downloads · preserves your workspace", updates));
         if (app.multimin.backend.PlatformSupport.isMac()) {
@@ -1144,7 +1167,7 @@ public final class MainWindow extends JFrame {
             permissions.addActionListener(event -> showMacPermissions());
             fields.add(settingsRow("Mac permissions", "Screen Recording, Accessibility, Input Monitoring", permissions));
         }
-        JButton legal = quietButton("Read policies"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
+        JButton legal = toolButton("Read policies", "Terms, privacy and licences"); legal.addActionListener(event -> LegalConsent.showDocuments(this));
         fields.add(settingsRow("Publisher: Mansoor Alakoozai", "Canada · support through GitHub Issues", legal));
         fields.add(settingsGroup("Appearance"));
         JComboBox<String> stagedAccent = new JComboBox<>(new String[]{"Blue", "Red", "Orange", "Yellow", "Green", "Purple", "White", "Black", "Custom…"});
@@ -1210,7 +1233,7 @@ public final class MainWindow extends JFrame {
             if (multitask) backend.setMultitaskOverlay(true, true, stopKeyBinding, swapKeyBinding, layerSwapKeyBinding);
             settingsApplied[0] = true;
         };
-        JButton apply = quietButton("Apply"); apply.addActionListener(event -> applySettings.run());
+        JButton apply = toolButton("Apply", "Apply without closing"); apply.addActionListener(event -> applySettings.run());
         JButton ok = primaryButton("OK"); ok.addActionListener(event -> { applySettings.run(); dialog.dispose(); });
         actions.setOpaque(true);actions.setBackground(palette.panel);
         actions.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(1,0,0,0,palette.line),new EmptyBorder(12,0,0,0)));
@@ -1236,23 +1259,23 @@ public final class MainWindow extends JFrame {
     }
     private JPanel settingsGroup(String title) {
         JPanel group = transparent(new BorderLayout());
-        JLabel heading = new JLabel(title); heading.setForeground(palette.text);
-        heading.setFont(heading.getFont().deriveFont(Font.BOLD, 13f));
-        heading.setBorder(new EmptyBorder(9, 0, 4, 0));
+        JLabel heading = new JLabel(title.toUpperCase(java.util.Locale.ROOT)); heading.setForeground(palette.muted);
+        heading.setFont(Theme.eyebrow(10.5f));
+        heading.setBorder(new EmptyBorder(14, 0, 6, 0));
         group.add(heading, BorderLayout.NORTH);
-        JComponent rule = new JComponent() { @Override protected void paintComponent(Graphics g){g.setColor(palette.line);g.drawLine(0,0,getWidth(),0);} };
+        JComponent rule = new JComponent() { @Override protected void paintComponent(Graphics g){g.setColor(palette.hairline());g.drawLine(0,0,getWidth(),0);} };
         rule.setPreferredSize(new Dimension(1,1)); group.add(rule, BorderLayout.SOUTH);
         return group;
     }
     private JPanel settingsRow(String title, String description, JComponent control) {
         JPanel row = transparent(new BorderLayout(18, 0));
         JPanel copy = transparent(new GridLayout(0, 1, 0, 2));
-        JLabel name = new JLabel(title); name.setForeground(palette.text);
-        JLabel detail = new JLabel(description); detail.setForeground(palette.muted); detail.setFont(detail.getFont().deriveFont(10f));
+        JLabel name = new JLabel(title); name.setForeground(palette.text); name.setFont(Theme.regular(13.5f));
+        JLabel detail = new JLabel(description); detail.setForeground(palette.muted); detail.setFont(Theme.regular(11.5f));
         copy.add(name); copy.add(detail); row.add(copy, BorderLayout.CENTER);
         name.setLabelFor(control); control.getAccessibleContext().setAccessibleName(title); control.getAccessibleContext().setAccessibleDescription(description);
-        control.setPreferredSize(new Dimension(170, 31)); row.add(control, BorderLayout.EAST);
-        row.setBorder(new EmptyBorder(4, 0, 4, 0)); row.setMinimumSize(new Dimension(0, 39)); row.setPreferredSize(new Dimension(400, 43));
+        control.setPreferredSize(new Dimension(176, 34)); row.add(control, BorderLayout.EAST);
+        row.setBorder(new EmptyBorder(6, 0, 6, 0)); row.setMinimumSize(new Dimension(0, 44)); row.setPreferredSize(new Dimension(400, 50));
         return row;
     }
     private void styleKeyButton(JButton button) {
@@ -1314,13 +1337,13 @@ public final class MainWindow extends JFrame {
     private void refreshTheme() { preview.setGuiHelpers(preferences.getBoolean("guiHelpers",true)); if(gallery!=null)gallery.refreshTheme(); applyUiDefaults(); retheme(this); for(Window owned:getOwnedWindows()){retheme(owned);owned.repaint();} opacity.setUI(new AccentSliderUI(opacity, palette)); scale.setUI(new AccentSliderUI(scale, palette)); for (JTextField field : percentageFields) { field.setBackground(palette.controlSurface()); field.setForeground(palette.text); field.setCaretColor(palette.text); field.setBorder(BorderFactory.createLineBorder(palette.accent)); } layerTitle.setFont(new Font("Segoe UI",Font.BOLD,20)); layerTitle.setForeground(palette.text); root.setBackground(palette.background); sourceList.setCellRenderer(new SourceCellRenderer(palette, preferences.getBoolean("guiHelpers",true))); sourceList.repaint(); topBar.repaint(); opacity.repaint(); scale.repaint(); repaint(); }
     private void retheme(Component component){
         if(component instanceof JComponent helper&&Boolean.TRUE.equals(helper.getClientProperty("gui.helper")))helper.setVisible(preferences.getBoolean("guiHelpers",true));
-        if(component.getFont()!=null)component.setFont(new Font("Segoe UI",component.getFont().getStyle(),component.getFont().getSize()));
+        if(component.getFont()!=null&&!Theme.isThemeFont(component.getFont()))component.setFont(Theme.regular(component.getFont().getSize2D()).deriveFont(component.getFont().getStyle()));
         Palette dark=new Palette(),light=new Palette();light.light();Color fg=component.getForeground(),bg=component.getBackground();
         if(component instanceof JLabel || component instanceof javax.swing.text.JTextComponent || component instanceof JCheckBox || component instanceof JRadioButton || component instanceof AbstractButton){component.setForeground(fg!=null&&(fg.equals(dark.muted)||fg.equals(light.muted))?palette.muted:palette.text);}
         if(bg!=null&&(bg.equals(dark.background)||bg.equals(light.background)||bg.equals(dark.primary)||bg.equals(light.primary)))component.setBackground(palette.background);
         if(bg!=null&&(bg.equals(dark.panel)||bg.equals(light.panel)||bg.equals(dark.panelRaised)||bg.equals(light.panelRaised)||bg.equals(dark.controlSurface())||bg.equals(light.controlSurface())))component.setBackground(palette.controlSurface());
         if(component instanceof JList<?> || component instanceof JViewport){component.setBackground(palette.panel);component.setForeground(palette.text);}
-        if(component==topBar)topBar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0,0,1,0,palette.line),new EmptyBorder(10,18,10,18)));
+        if(component==topBar)topBar.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createMatteBorder(0,0,1,0,palette.line),new EmptyBorder(9,16,9,16)));
         if(component instanceof JComboBox<?> combo)combo.setBorder(new ControlBorder(palette));
         if(component instanceof JComboBox<?> || component instanceof JTabbedPane || component instanceof JMenuItem){component.setForeground(palette.text);component.setBackground(palette.controlSurface());}
         if(component instanceof javax.swing.text.JTextComponent text){if(text.isOpaque())text.setBackground(palette.controlSurface());text.setCaretColor(palette.text);text.setSelectionColor(palette.accent);text.setSelectedTextColor(palette.selectionText());}
@@ -1333,10 +1356,10 @@ public final class MainWindow extends JFrame {
     }
     private void applyUiDefaults() {
         for(String type:new String[]{"Label","Button","ToggleButton","TextField","FormattedTextField","ComboBox","List","CheckBox","RadioButton","Menu","MenuItem","TabbedPane","TextArea","TextPane","EditorPane"})
-            UIManager.put(type+".font",new javax.swing.plaf.FontUIResource("Segoe UI",Font.PLAIN,12));
+            UIManager.put(type+".font",new javax.swing.plaf.FontUIResource(Theme.regular(13f)));
         for(String type:new String[]{"Menu","MenuItem","PopupMenu","TabbedPane","TextArea","TextPane","EditorPane"}){UIManager.put(type+".background",palette.controlSurface());UIManager.put(type+".foreground",palette.text);UIManager.put(type+".selectionBackground",palette.accent);UIManager.put(type+".selectionForeground",palette.selectionText());}
 
-        UIManager.put("ToolTip.background",palette.controlSurface()); UIManager.put("ToolTip.foreground",palette.text); UIManager.put("ToolTip.border",BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(5,8,5,8))); UIManager.put("ToolTip.font",new Font("Segoe UI",Font.PLAIN,12));
+        UIManager.put("ToolTip.background",palette.controlSurface()); UIManager.put("ToolTip.foreground",palette.text); UIManager.put("ToolTip.border",BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(5,8,5,8))); UIManager.put("ToolTip.font",Theme.regular(12f));
         UIManager.put("Panel.background", palette.background); UIManager.put("Label.foreground", palette.text);
         UIManager.put("Button.background", palette.panelRaised); UIManager.put("Button.foreground", palette.text); UIManager.put("Button.select", palette.accent.darker());
         UIManager.put("List.background", palette.panel); UIManager.put("List.foreground", palette.text); UIManager.put("List.selectionBackground", palette.accent); UIManager.put("List.selectionForeground", palette.selectionText());
@@ -1443,7 +1466,7 @@ public final class MainWindow extends JFrame {
         boolean kdeTarget=app.multimin.backend.PlatformSupport.isPortable() && source.windowProcess.startsWith("kwin:");
         boolean portalTarget=app.multimin.backend.PlatformSupport.isPortable() && ("portal".equals(source.windowProcess)||kdeTarget);
         JTextField name = new JTextField(source.name); name.getAccessibleContext().setAccessibleName("Source name");
-        name.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(palette.line),new EmptyBorder(8,10,8,10)));name.setSelectionColor(palette.accent);name.setSelectedTextColor(palette.selectionText());
+        name.setBorder(BorderFactory.createCompoundBorder(new ControlBorder(palette),new EmptyBorder(6,8,6,8)));name.setFont(Theme.regular(13.5f));name.setSelectionColor(palette.accent);name.setSelectedTextColor(palette.selectionText());
         name.setForeground(palette.text); name.setBackground(palette.controlSurface()); name.setCaretColor(palette.text);
         boolean[] manualName = {source.customName || portalTarget}, settingSuggestedName = {false};
         name.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
@@ -1460,7 +1483,10 @@ public final class MainWindow extends JFrame {
             }
         });
         JLabel scanStatus = muted("Scanning open windows…");
-        JButton scan = toolButton("Scan again", "Refresh detected application windows");
+        JButton scan = toolButton("Refresh", "Refresh detected application windows");
+        WindowPicker targetPicker = new WindowPicker(palette);
+        targetPicker.onSelect(target -> targets.setSelectedItem(target));
+        targetPicker.setPreferredSize(new Dimension(600, 330));
         Runnable refresh = () -> {
             if(portalTarget && !kdeTarget) {
                 targets.setModel(new DefaultComboBoxModel<>(new PythonBridge.WindowTarget[]{
@@ -1473,12 +1499,20 @@ public final class MainWindow extends JFrame {
                 for (PythonBridge.WindowTarget item : found) model.addElement(item);
                 targets.setModel(model);
                 for (int i = 0; i < model.getSize(); i++) if (model.getElementAt(i).hwnd == source.nativeWindowHandle) targets.setSelectedIndex(i);
+                targetPicker.setTargets(found); targetPicker.setSelected((PythonBridge.WindowTarget) targets.getSelectedItem());
+                backend.requestWindowThumbnails(found.stream().map(target -> target.hwnd).toList(), 360, targetPicker::setThumbnail);
                 scan.setEnabled(true); scanStatus.setText(found.size() + " windows found");
             }),kdeTarget?"wayland":"x11");
         };
         scan.addActionListener(event -> refresh.run());
         fields.add(propertyLabel("Source name")); fields.add(name);
-        fields.add(propertyLabel("Capture target")); JPanel targetRow = transparent(new BorderLayout(6, 0)); targetRow.add(targets); targetRow.add(scan, BorderLayout.EAST); fields.add(targetRow); fields.add(scanStatus);
+        if (portalTarget && !kdeTarget) {
+            fields.add(propertyLabel("Capture target")); JPanel targetRow = transparent(new BorderLayout(6, 0)); targetRow.add(targets); targetRow.add(scan, BorderLayout.EAST); fields.add(targetRow); fields.add(scanStatus);
+        } else {
+            JPanel targetHeader = transparent(new BorderLayout(8, 0)); JPanel targetCopy = transparent(new GridLayout(0, 1, 0, 2)); targetCopy.add(propertyLabel("Capture target")); targetCopy.add(scanStatus);
+            targetHeader.add(targetCopy, BorderLayout.CENTER); JPanel scanWrap = transparent(new FlowLayout(FlowLayout.RIGHT, 0, 4)); scanWrap.add(scan); targetHeader.add(scanWrap, BorderLayout.EAST);
+            fields.add(targetHeader); fields.add(targetPicker);
+        }
         JCheckBox captureCursor = new JCheckBox("Capture cursor in this source", source.captureCursor); captureCursor.setOpaque(false); captureCursor.setForeground(palette.text); captureCursor.setIcon(new AccentCheckIcon(palette)); fields.add(captureCursor);
         JCheckBox nativePresentation=new JCheckBox(linux?"Native presentation when this is the only visible window":"Native window presentation in multitask mode",source.nativePresentationEnabled);
         nativePresentation.setOpaque(false);nativePresentation.setForeground(palette.text);nativePresentation.setIcon(new AccentCheckIcon(palette));
@@ -1512,7 +1546,7 @@ public final class MainWindow extends JFrame {
             sourceList.repaint(); syncSelection(); preview.repaint(); dialog.dispose();
         });
         JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT, 6, 0)); actions.add(cancel); actions.add(save); body.add(actions, BorderLayout.SOUTH);
-        dialog.setContentPane(body); dialog.setSize(680, 550); dialog.setMinimumSize(new Dimension(560,500)); dialog.setLocationRelativeTo(this); refresh.run(); dialog.setVisible(true);
+        dialog.setContentPane(body); dialog.setSize(portalTarget && !kdeTarget ? 680 : 860, portalTarget && !kdeTarget ? 550 : 800); dialog.setMinimumSize(new Dimension(560,500)); dialog.setLocationRelativeTo(this); refresh.run(); dialog.setVisible(true);
     }
 
     private void resetTransform() {
@@ -1918,28 +1952,63 @@ public final class MainWindow extends JFrame {
     }
 
     private Source.Kind chooseSourceKind() {
-        JDialog dialog = dialog("Add source"); JPanel body = dialogBody(); body.add(new JLabel("Choose a source type"), BorderLayout.NORTH); JPanel choices = transparent(new GridLayout(0, 1, 0, 6)); final Source.Kind[] result = {null};
-        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || (kind == Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isPortable() && !Boolean.getBoolean("multimin.dev.gameCapture"))) continue; JButton choice = toolButton(kind.label, "Add " + kind.label.toLowerCase()); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
+        JDialog dialog = dialog("Add source"); JPanel body = dialogBody(); JPanel intro = transparent(new GridLayout(0, 1, 0, 2)); JLabel introTitle = new JLabel("Add a source"); introTitle.setFont(Theme.title(17f)); introTitle.setForeground(palette.text); intro.add(introTitle); intro.add(muted("Choose what to show in this view")); body.add(intro, BorderLayout.NORTH); JPanel choices = transparent(new GridLayout(0, 1, 0, 8)); final Source.Kind[] result = {null};
+        for (Source.Kind kind : Source.Kind.values()) { if (kind == Source.Kind.VIDEO || (kind == Source.Kind.GAME && !app.multimin.backend.PlatformSupport.isPortable() && !Boolean.getBoolean("multimin.dev.gameCapture"))) continue; String blurb = switch (kind) { case DISPLAY -> "A whole monitor, live"; case WINDOW -> "One app window, even when covered"; case GAME -> "A game window, tuned for motion"; case IMAGE -> "A picture from your computer"; default -> ""; };
+            Color tint = SourceCellRenderer.kindColor(kind);
+            ModernButton choice = new ModernButton("<html><span style='font-size:110%'>" + kind.label + "</span><br><span style='color:" + String.format("#%06x", palette.muted.getRGB() & 0xFFFFFF) + "'>" + blurb + "</span></html>", new VectorIcon(VectorIcon.forSource(kind), 20, Palette.blend(tint, palette.text, palette.isLight() ? 0f : 0.2f)), palette, false);
+            choice.setToolTipText("Add " + kind.label.toLowerCase()); choice.setIconTextGap(14); choice.setBorder(new EmptyBorder(10, 16, 10, 14)); choice.setHorizontalAlignment(SwingConstants.LEFT); choice.addActionListener(event -> { result[0] = kind; dialog.dispose(); }); choices.add(choice); }
         body.add(choices, BorderLayout.CENTER); JButton cancel = toolButton("Cancel", "Close"); cancel.addActionListener(event -> dialog.dispose()); JPanel actions = transparent(new FlowLayout(FlowLayout.RIGHT)); actions.add(cancel); body.add(actions, BorderLayout.SOUTH);
-        dialog.setContentPane(body); dialog.setSize(360, 320); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
+        dialog.setContentPane(body); dialog.setSize(420, 150 + choices.getComponentCount() * 66); dialog.setLocationRelativeTo(this); dialog.setVisible(true); return result[0];
     }
 
     private JDialog dialog(String title) { JDialog dialog = new JDialog(this, title, true); dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE); dialog.getContentPane().setBackground(palette.background); return dialog; }
-    private JPanel dialogBody() { JPanel body = new GlassPanel(palette); body.setLayout(new BorderLayout(12, 16)); body.setBorder(new EmptyBorder(18, 18, 14, 18)); return body; }
-    private JButton quietButton(String text) { Icon icon = null; String label = text; if ("＋".equals(text)) { icon = new VectorIcon(VectorIcon.Type.ADD, 12, ()->palette.text); label = ""; } else if ("Snapshot".equals(text)) icon = new VectorIcon(VectorIcon.Type.CAMERA, 13, ()->palette.text); return new ModernButton(label, icon, palette, false); }
+    private JPanel dialogBody() { JPanel body = new GlassPanel(palette); body.setLayout(new BorderLayout(14, 18)); body.setBorder(new EmptyBorder(22, 22, 18, 22)); return body; }
+    private JButton quietButton(String text) { Icon icon = null; String label = text; if ("＋".equals(text)) { icon = new VectorIcon(VectorIcon.Type.ADD, 12, ()->palette.text); label = ""; } else if ("Snapshot".equals(text)) icon = new VectorIcon(VectorIcon.Type.CAMERA, 13, ()->palette.text); ModernButton button = new ModernButton(label, icon, palette, false); button.putClientProperty("appearance.ghost", true); button.setBorder(new EmptyBorder(6, 12, 6, 12)); return button; }
     private JButton primaryButton(String text) { Icon icon = text.contains("Add") ? new VectorIcon(VectorIcon.Type.ADD, 12, palette::selectionText) : text.contains("multitasking") ? new VectorIcon(VectorIcon.Type.PLAY, 12, palette::selectionText) : null; return new ModernButton(text.replace("＋ ", ""), icon, palette, true); }
     private JButton toolButton(String text, String tooltip) { VectorIcon.Type type = null; if ("＋".equals(text)) type = VectorIcon.Type.ADD; else if ("−".equals(text)) type = VectorIcon.Type.REMOVE; else if ("⧉".equals(text)) type = VectorIcon.Type.COPY; else if ("◉".equals(text)) type = VectorIcon.Type.EYE; else if ("↑".equals(text)) type = VectorIcon.Type.UP; else if ("↓".equals(text)) type = VectorIcon.Type.DOWN; Icon icon = type == null ? null : new VectorIcon(type, 13, ()->palette.text); ModernButton button = new ModernButton(type == null ? text : "", icon, palette, false); button.setToolTipText(tooltip); return button; }
     private JButton compactAction(String label, VectorIcon.Type icon) {
-        ModernButton button = new ModernButton(label, new VectorIcon(icon, 15, () -> palette.text), palette, false);
-        button.putClientProperty("appearance.textOnly", true);
+        ModernButton button = new ModernButton(label, new VectorIcon(icon, 16, () -> palette.text), palette, false);
+        button.putClientProperty("appearance.ghost", true);
         button.setVerticalTextPosition(SwingConstants.BOTTOM); button.setHorizontalTextPosition(SwingConstants.CENTER);
-        button.setIconTextGap(5); button.setBorder(new EmptyBorder(4, 2, 4, 2));
-        button.setFont(button.getFont().deriveFont(11f)); button.setToolTipText(label);
+        button.setIconTextGap(5); button.setBorder(new EmptyBorder(8, 2, 7, 2));
+        button.setFont(Theme.regular(11.5f)); button.setToolTipText(label);
         return button;
     }
-    private JLabel centeredSection(String text) { JLabel label=sectionTitle(text); label.setHorizontalAlignment(SwingConstants.CENTER); label.setMaximumSize(new Dimension(Integer.MAX_VALUE,38)); label.setAlignmentX(Component.CENTER_ALIGNMENT); return label; }
-    private JLabel sectionTitle(String text) { JLabel label = muted(text); label.setFont(label.getFont().deriveFont(11f)); label.setBorder(new EmptyBorder(8, 0, 7, 0)); return label; }
-    private JLabel propertyLabel(String text) { JLabel label = new JLabel(text); label.setForeground(palette.text); return label; }
+    private JLabel centeredSection(String text) { JLabel label=sectionTitle(text); label.setHorizontalAlignment(SwingConstants.LEFT); label.setMaximumSize(new Dimension(Integer.MAX_VALUE,34)); label.setAlignmentX(Component.CENTER_ALIGNMENT); return label; }
+    private JLabel sectionTitle(String text) { JLabel label = sectionLabel(text); label.setBorder(new EmptyBorder(8, 0, 6, 0)); return label; }
+    /** Settings navigation icons: gear, mouse, lightning bolt and question mark (16 px box). */
+    private static void paintSettingsIcon(Graphics2D g, String title, int x, int y, Color color) {
+        g = (Graphics2D) g.create(); g.translate(x, y); g.setColor(color);
+        g.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        if (title.startsWith("Controls")) {
+            g.draw(Theme.round(3.5f, 1f, 9f, 14f, 9f));          // mouse body
+            g.drawLine(8, 1, 8, 6);                                 // button split
+            g.fill(Theme.round(7f, 3.5f, 2f, 3f, 2f));             // scroll wheel
+        } else if (title.startsWith("Performance")) {
+            java.awt.geom.Path2D bolt = new java.awt.geom.Path2D.Float();
+            bolt.moveTo(9.5, 0.5); bolt.lineTo(2.5, 9); bolt.lineTo(7.5, 9); bolt.lineTo(6, 15.5);
+            bolt.lineTo(13.5, 6.5); bolt.lineTo(8.5, 6.5); bolt.closePath();
+            g.fill(bolt);
+        } else if (title.startsWith("Help")) {
+            g.drawOval(1, 1, 14, 14);
+            java.awt.geom.Path2D mark = new java.awt.geom.Path2D.Float();
+            mark.moveTo(5.8, 6.2); mark.curveTo(5.8, 3.6, 10.4, 3.6, 10.4, 6.2); mark.curveTo(10.4, 8, 8, 8.2, 8, 10);
+            g.draw(mark); g.fill(new java.awt.geom.Ellipse2D.Float(7f, 11.6f, 2.2f, 2.2f));
+        } else {
+            new VectorIcon(VectorIcon.Type.GEAR, 16, color).paintIcon(null, g, 0, 0);
+        }
+        g.dispose();
+    }
+    /** Small uppercase eyebrow label used for section headings. */
+    private JLabel sectionLabel(String text) { JLabel label = new JLabel(text.toUpperCase(java.util.Locale.ROOT)); label.setForeground(palette.muted); label.setFont(Theme.eyebrow(10.5f)); return label; }
+    /** Transparent container painted as a rounded card behind its children. */
+    private JPanel cardPanel(LayoutManager layout) {
+        JPanel panel = new JPanel(layout) { @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = Theme.quality(graphics); g.setColor(palette.card()); g.fill(Theme.round(0, 0, getWidth(), getHeight(), Theme.RADIUS));
+            g.setColor(palette.hairline()); g.draw(Theme.round(0.5f, 0.5f, getWidth() - 1, getHeight() - 1, Theme.RADIUS)); g.dispose(); } };
+        panel.setOpaque(false); return panel;
+    }
+    private JLabel propertyLabel(String text) { JLabel label = new JLabel(text); label.setForeground(palette.text); label.setFont(Theme.regular(13f)); return label; }
     private JPanel percentageEditor(JSlider slider) {
         CardLayout cards = new CardLayout();
         JPanel holder = transparent(cards);
@@ -1984,16 +2053,17 @@ public final class MainWindow extends JFrame {
                 JButton arrow=new JButton(){@Override protected void paintComponent(Graphics graphics){Graphics2D g=(Graphics2D)graphics.create();g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);g.setColor(palette.muted);g.setStroke(new BasicStroke(1.5f));int x=getWidth()/2,y=getHeight()/2;g.drawLine(x-4,y-2,x,y+2);g.drawLine(x,y+2,x+4,y-2);g.dispose();}};
                 arrow.setBorder(BorderFactory.createEmptyBorder());arrow.setContentAreaFilled(false);arrow.setFocusable(false);arrow.setPreferredSize(new Dimension(28,28));return arrow;
             }
-            @Override public void paintCurrentValueBackground(Graphics g,Rectangle bounds,boolean focus){g.setColor(palette.controlSurface());g.fillRect(bounds.x,bounds.y,bounds.width,bounds.height);}
+            @Override public void paintCurrentValueBackground(Graphics g,Rectangle bounds,boolean focus){}
+            @Override public void paint(Graphics graphics,JComponent c){Graphics2D g=Theme.quality(graphics);g.setColor(palette.controlSurface());g.fill(Theme.round(0,0,c.getWidth(),c.getHeight(),8));g.dispose();super.paint(graphics,c);}
             @Override protected javax.swing.plaf.basic.ComboPopup createPopup(){return new javax.swing.plaf.basic.BasicComboPopup(comboBox){@Override protected JScrollPane createScroller(){JScrollPane pane=super.createScroller();styleScrollBar(pane.getVerticalScrollBar());pane.setBorder(BorderFactory.createEmptyBorder());return pane;}};}
         });
-        combo.setOpaque(true); combo.setBackground(palette.controlSurface()); combo.setForeground(palette.text); combo.setBorder(new ControlBorder(palette));
+        combo.setOpaque(false); combo.setBackground(palette.controlSurface()); combo.setForeground(palette.text); combo.setBorder(new ControlBorder(palette)); combo.setFont(Theme.regular(13f));
         combo.setRenderer((list, value, index, selected, focus) -> {
-            JLabel item = new JLabel(value == null ? "" : value.toString()); item.setOpaque(true); item.setBorder(new EmptyBorder(4, 7, 4, 7));
-            item.setBackground(selected ? palette.accent : palette.controlSurface());
-            item.setForeground(selected ? palette.selectionText() : palette.text); return item;
+            JLabel item = new JLabel(value == null ? "" : value.toString()); item.setOpaque(index >= 0); item.setBorder(new EmptyBorder(6, 10, 6, 10)); item.setFont(Theme.regular(13f));
+            item.setBackground(selected && index >= 0 ? palette.accentTint(palette.controlSurface(), 0.30f) : palette.controlSurface());
+            item.setForeground(palette.text); return item;
         });
     }
-    private JLabel muted(String text) { JLabel label = new JLabel(text); label.setForeground(palette.muted); label.setFont(label.getFont().deriveFont(10f)); return label; }
+    private JLabel muted(String text) { JLabel label = new JLabel(text); label.setForeground(palette.muted); label.setFont(Theme.regular(11f)); return label; }
     private JPanel transparent(LayoutManager layout) { JPanel panel = new JPanel(layout); panel.setOpaque(false); return panel; }
 }
