@@ -20,11 +20,10 @@ final class AccentSliderUI extends BasicSliderUI {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int y = trackRect.y + trackRect.height / 2 - 2;
         int left = trackRect.x, width = trackRect.width;
-        g.setColor(palette.isLight() ? new Color(214, 219, 227) : Palette.blend(palette.panel, palette.text, 0.14f));
+        g.setColor(palette.isLight() ? new Color(214, 219, 227) : Palette.blend(palette.panel, palette.text, 0.16f));
         g.fillRoundRect(left, y, width, 4, 4, 4);
         int filled = Math.max(0, thumbRect.x + thumbRect.width / 2 - left);
-        Color accent = palette.controlAccent();
-        g.setPaint(new GradientPaint(left, 0, Palette.blend(accent, palette.panel, 0.25f), left + Math.max(1, filled), 0, accent));
+        g.setColor(palette.controlAccent());
         g.fillRoundRect(left, y, Math.min(width, filled), 4, 4, 4);
         g.dispose();
     }
@@ -34,16 +33,16 @@ final class AccentSliderUI extends BasicSliderUI {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         Point pointer = GraphicsEnvironment.isHeadless() ? null : slider.getMousePosition();
         boolean hovered = pointer != null && thumbRect.contains(pointer);
-        int size = 16;
+        // Simple solid knob: accent fill, no ring; a soft halo only while hovered or dragged.
+        int size = 14;
         int x = thumbRect.x + (thumbRect.width - size) / 2;
         int y = thumbRect.y + (thumbRect.height - size) / 2;
-        if (hovered || slider.hasFocus() || isDragging()) {
-            g.setColor(Theme.withAlpha(palette.accent, 60));
+        if (hovered || isDragging()) {
+            g.setColor(Theme.withAlpha(palette.accent, 50));
             g.fillOval(x - 5, y - 5, size + 10, size + 10);
         }
-        g.setColor(Theme.withAlpha(Color.BLACK, palette.isLight() ? 40 : 90)); g.fillOval(x, y + 1, size, size);
-        g.setColor(palette.isLight() ? Color.WHITE : new Color(244, 246, 250)); g.fillOval(x, y, size, size);
-        g.setColor(palette.controlAccent()); g.setStroke(new BasicStroke(2.5f)); g.drawOval(x + 2, y + 2, size - 4, size - 4);
+        if (slider.hasFocus()) { g.setColor(Theme.withAlpha(palette.controlAccent(), 160)); g.setStroke(new BasicStroke(1.5f)); g.drawOval(x - 3, y - 3, size + 6, size + 6); }
+        g.setColor(palette.controlAccent()); g.fillOval(x, y, size, size);
         g.dispose();
     }
 

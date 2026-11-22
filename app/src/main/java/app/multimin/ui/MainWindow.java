@@ -2046,9 +2046,7 @@ public final class MainWindow extends JFrame {
         g = (Graphics2D) g.create(); g.translate(x, y); g.setColor(color);
         g.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         if (title.startsWith("Controls")) {
-            g.draw(Theme.round(3.5f, 1f, 9f, 14f, 9f));          // mouse body
-            g.drawLine(8, 1, 8, 6);                                 // button split
-            g.fill(Theme.round(7f, 3.5f, 2f, 3f, 2f));             // scroll wheel
+            new VectorIcon(VectorIcon.Type.MOUSE, 16, color).paintIcon(null, g, 0, 0);  // same mouse as the source list
         } else if (title.startsWith("Performance")) {
             java.awt.geom.Path2D bolt = new java.awt.geom.Path2D.Float();
             bolt.moveTo(9.5, 0.5); bolt.lineTo(2.5, 9); bolt.lineTo(7.5, 9); bolt.lineTo(6, 15.5);
@@ -2119,6 +2117,9 @@ public final class MainWindow extends JFrame {
                 arrow.setBorder(BorderFactory.createEmptyBorder());arrow.setContentAreaFilled(false);arrow.setFocusable(false);arrow.setPreferredSize(new Dimension(28,28));return arrow;
             }
             @Override public void paintCurrentValueBackground(Graphics g,Rectangle bounds,boolean focus){}
+            // Swing recolours focused combo text with the selection colour (black on light accents);
+            // keep normal text, the rounded border shows focus.
+            @Override public void paintCurrentValue(Graphics g,Rectangle bounds,boolean focus){super.paintCurrentValue(g,bounds,false);}
             @Override public void paint(Graphics graphics,JComponent c){Graphics2D g=Theme.quality(graphics);g.setColor(palette.controlSurface());g.fill(Theme.round(0,0,c.getWidth(),c.getHeight(),8));g.dispose();super.paint(graphics,c);}
             @Override protected javax.swing.plaf.basic.ComboPopup createPopup(){return new javax.swing.plaf.basic.BasicComboPopup(comboBox){@Override protected JScrollPane createScroller(){JScrollPane pane=super.createScroller();styleScrollBar(pane.getVerticalScrollBar());pane.setBorder(BorderFactory.createEmptyBorder());return pane;}};}
         });
