@@ -23,7 +23,14 @@ fi
 "${builder[@]}" --user --force-clean "${sign[@]}" --default-branch=stable --repo=build/linux-repo build/flatpak packaging/linux/io.github.MaDaAi.MultiMini.json
 mkdir -p dist
 bundle_args=(--runtime-repo=https://flathub.org/repo/flathub.flatpakrepo)
-[ -f "$pubkey" ] && bundle_args+=(--repo-url="$repo_url" --gpg-keys="$pubkey")
+# A bundle that names the signed update repository is GPG-verified on install,
+# so it must itself be signed; an unsigned bundle with --gpg-keys fails to
+# install ("GPG verification enabled, but no signatures found").
+if [ ${#sign[@]} -gt 0 ] && [ -f "$pubkey" ]; then
+    bundle_args+=(--repo-url="$repo_url" --gpg-keys="$pubkey" "${sign[@]}")
+else
+    echo "Unsigned build: the bundle installs but will not update in-app (set FLATPAK_GPG_KEY_ID)." >&2
+fi
 flatpak build-bundle "${bundle_args[@]}" build/linux-repo "dist/MultiMini-$(cat VERSION)-Linux-x86_64.flatpak" io.github.MaDaAi.MultiMini stable
 python3 - <<'HASH'
 from pathlib import Path
