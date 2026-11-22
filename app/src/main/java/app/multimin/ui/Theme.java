@@ -28,7 +28,8 @@ final class Theme {
     static Font semibold(float size) { return SEMIBOLD != null ? new Font(SEMIBOLD, Font.PLAIN, Math.round(size)).deriveFont(size) : new Font(FAMILY, Font.BOLD, Math.round(size)).deriveFont(size); }
     /** Small uppercase section label with a little letter spacing. */
     static Font eyebrow(float size) { return semibold(size).deriveFont(Map.of(TextAttribute.TRACKING, 0.08f)); }
-    static Font title(float size) { return semibold(size).deriveFont(Map.of(TextAttribute.TRACKING, -0.01f)); }
+    /** Headings: semibold at the font's own spacing (tightened tracking rendered unevenly). */
+    static Font title(float size) { return semibold(size); }
 
     static Graphics2D quality(Graphics graphics) {
         Graphics2D g = (Graphics2D) graphics.create();
