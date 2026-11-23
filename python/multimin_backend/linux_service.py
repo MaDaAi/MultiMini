@@ -315,7 +315,7 @@ class LinuxService:
             self._input_mode(mode,str(error))
             self.emit({"event":"error","message":f"Native input unavailable ({error}); input mode: {mode}"})
 
-    def _check_input(self):
+    def _check_input(self, expected_target=None):
         if not self.enabled or self.selecting or self.permissions_pending or self.input_mode!="native":return
         try:
             if self.target in self.kwin_handles:
@@ -329,6 +329,8 @@ class LinuxService:
                 window=self.native_input._window(self.target)
                 valid=self.native_input._viewable(window) and self.native_input.focused_target(self.target) and self.native_input._geometry(window)==self.rect
         except Exception:valid=False
+        if expected_target is not None and (expected_target!=self.target or not self.enabled or self.input_mode!="native"):
+            return  # the target changed while a background check was running
         if not valid:
             self._deactivate_native()
             self._input_mode("unavailable","Input target focus or geometry changed")
@@ -512,7 +514,20 @@ class LinuxService:
             self.opacity = max(0, min(100, int(message.get("value", 100))))
             return {"event": "opacity_changed", "value": self.opacity}
         if command == "linux_check_input":
-            self._check_input()
+            if self.target in self.kwin_handles:
+                # KWin queries are several blocking D-Bus round trips; run them
+                # off the command thread so other commands are never held up.
+                if not getattr(self, "_input_check_running", False):
+                    self._input_check_running = True
+                    target = self.target
+                    def check():
+                        try:
+                            self._check_input(target)
+                        finally:
+                            self._input_check_running = False
+                    threading.Thread(target=check, name="multimini-input-check", daemon=True).start()
+            else:
+                self._check_input()
             return {"event":"input_checked"}
         if command == "linux_overlay_controls":
             self.control_xid=max(0,int(message.get("xid",0)))
@@ -613,6 +628,28 @@ def portal_trigger(key):
     return "+".join(names.get(part, part) for part in key.split("+"))
 
 
+def _preload():
+    """Warm lazily imported modules and native libraries after "ready" so the
+    first capture, multitask entry or hotkey does not pay for them."""
+    import importlib
+    for name in ("multimin_backend.linux_native_input", "multimin_backend.linux_hotkeys",
+                 "Xlib.ext.shape", "Xlib.protocol.event", "Xlib.XK"):
+        try:
+            importlib.import_module(name)
+        except Exception:
+            pass
+    try:
+        from . import linux_xshm
+        linux_xshm._load()
+    except Exception:
+        pass
+    try:
+        from .linux_portal import video_module
+        video_module()
+    except Exception:
+        pass
+
+
 def run():
     lock = threading.Lock()
     def emit(message):
@@ -625,6 +662,10 @@ def run():
         return
     emit({"event": "ready", "protocol": 1, "frame_port": service.frame_stream.port,
           "game_available": False, "frame_notifications": True, "backend": "linux"})
+    # Capture, frame-stream and emit threads share the GIL; a shorter switch
+    # interval keeps frame hand-off latency low while capture threads are busy.
+    sys.setswitchinterval(0.001)
+    threading.Thread(target=_preload, name="multimini-preload", daemon=True).start()
     for error in service.startup_errors:
         emit({"event": "error", "message": error})
     try:

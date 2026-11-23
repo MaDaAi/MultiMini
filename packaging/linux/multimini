@@ -3,4 +3,8 @@ set -eu
 export MULTIMIN_HOME=/app/share/multimini
 export MULTIMIN_PYTHON=/usr/bin/python3
 export PYTHONPATH=/app/share/multimini/python/vendor
-exec /app/jre/bin/java --enable-native-access=ALL-UNNAMED -Djpackage.app-version="$(cat /app/share/multimini/VERSION)" -jar /app/share/multimini/MultiMini.jar "$@"
+# Class-data sharing archive, created on first launch and reused afterwards
+# (faster start-up); the JVM recreates it after a runtime update.
+cache="${XDG_CACHE_HOME:-$HOME/.cache}"
+mkdir -p "$cache" 2>/dev/null || true
+exec /app/jre/bin/java -XX:+AutoCreateSharedArchive -XX:SharedArchiveFile="$cache/multimini.jsa" --enable-native-access=ALL-UNNAMED -Xms512m -Xmx2g -XX:+UseG1GC -XX:G1HeapRegionSize=32m -XX:MaxGCPauseMillis=8 -Djpackage.app-version="$(cat /app/share/multimini/VERSION)" -jar /app/share/multimini/MultiMini.jar "$@"

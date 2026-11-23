@@ -165,6 +165,12 @@ class XShmGrabber:
         self.image = None
         self.info = XShmSegmentInfo()
         self.size = (0, 0)
+        # Reused frame buffers. Allocating a fresh multi-megabyte bytes object
+        # per frame cost an mmap, thousands of page faults and an munmap each
+        # time. A published buffer is rewritten only RING_SIZE frames later,
+        # long after the frame stream has copied it out.
+        self._ring: list[tuple[bytearray, object]] = []
+        self._ring_index = 0
         self.damage = 0
         self.damage_event = -1
         try:
@@ -299,10 +305,24 @@ class XShmGrabber:
         prefix = XImagePrefix.from_address(self.image)
         row = width * 4
         if prefix.bytes_per_line == row:
-            return width, height, ctypes.string_at(self.info.shmaddr, row * height)
+            return width, height, self._copy_out(row * height)
         raw = ctypes.string_at(self.info.shmaddr, prefix.bytes_per_line * height)
         stride = prefix.bytes_per_line
         return width, height, b"".join(raw[y * stride:y * stride + row] for y in range(height))
+
+    RING_SIZE = 3
+
+    def _copy_out(self, size: int) -> bytearray:
+        if not self._ring or len(self._ring[0][0]) != size:
+            self._ring = []
+            for _ in range(self.RING_SIZE):
+                buffer = bytearray(size)
+                self._ring.append((buffer, (ctypes.c_char * size).from_buffer(buffer)))
+            self._ring_index = 0
+        buffer, view = self._ring[self._ring_index]
+        self._ring_index = (self._ring_index + 1) % self.RING_SIZE
+        ctypes.memmove(view, self.info.shmaddr, size)
+        return buffer
 
     def _release_image(self):
         if self.image:

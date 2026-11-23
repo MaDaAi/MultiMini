@@ -36,6 +36,7 @@
         "install -Dm644 VERSION /app/share/multimini/VERSION",
         "mkdir -p /app/share/multimini/python /app/share/licenses/multimini",
         "cp -r python/multimin_backend python/vendor /app/share/multimini/python/",
+        "python3 -m compileall -q -j0 --invalidation-mode unchecked-hash /app/share/multimini/python",
         "cp LICENSE THIRD_PARTY_NOTICES.md /app/share/licenses/multimini/",
         "install -Dm644 packaging/linux/io.github.MaDaAi.MultiMini.desktop /app/share/applications/io.github.MaDaAi.MultiMini.desktop",
         "install -Dm644 packaging/linux/io.github.MaDaAi.MultiMini.metainfo.xml /app/share/metainfo/io.github.MaDaAi.MultiMini.metainfo.xml",

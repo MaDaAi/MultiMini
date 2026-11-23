@@ -1015,8 +1015,6 @@ public final class MainWindow extends JFrame {
         preferences.putBoolean("captureFpsChoiceV2", true);
         lastAppliedCaptureFps = effectiveCaptureFps();
         windowFrameTimer.setTargetFps(backend.hasFrameNotifications() ? Math.min(30, lastAppliedCaptureFps) : lastAppliedCaptureFps);
-        if (app.multimin.backend.PlatformSupport.isPortable())
-            new app.multimin.backend.LinuxOverlayInput(backend, preview, () -> multitask);
         GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         for (int i = 0; i < displayCaptures.size(); i++) {
             int refresh = i < screens.length ? screens[i].getDisplayMode().getRefreshRate() : 0;
