@@ -310,6 +310,11 @@ class XShmGrabber:
         finally:
             if pixmap:
                 self.x11.XFreePixmap(self.display, pixmap)
+                if not self.composite:
+                    # The name was bogus (window not redirected); flush the
+                    # BadPixmap from freeing it now, or the next grab's error
+                    # check would see it and reject a good frame.
+                    self.x11.XSync(self.display, 0)
         prefix = XImagePrefix.from_address(self.image)
         row = width * 4
         if prefix.bytes_per_line == row:

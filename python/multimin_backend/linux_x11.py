@@ -237,6 +237,7 @@ class X11Capture:
         win = d.create_resource_object('window', int(xid))
         last_error = 0
         next_due = 0.0
+        grab_failures = 0
         grabber = None
         try:
             from .linux_xshm import XShmGrabber
@@ -275,11 +276,18 @@ class X11Capture:
                             # restart the cadence instead of bursting to catch up.
                             period = 1/max(1,min(1000,fps()))
                             next_due = next_due+period if grab_started-next_due < period else grab_started+period
+                            grab_failures = 0
                             publish(w,h,pixels)  # Java draws these as opaque RGB.
                             if not grabber.event_driven:
                                 self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
                             continue
                         except Exception:
+                            # A single failure (resize, unmap race, stray X error)
+                            # must not demote the source to the slow path for good.
+                            grab_failures += 1
+                            if grab_failures < 5:
+                                self.stop.wait(.01)
+                                continue
                             grabber.close()
                             grabber = None
                     geom = win.get_geometry()
