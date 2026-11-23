@@ -387,7 +387,9 @@ class X11CaptureLoopTests(unittest.TestCase):
 
     def test_silent_damage_with_changing_pixels_falls_back_to_timer_pacing(self):
         grabber = FakeGrabber(lambda n: bytes([n % 250]) * 16)
-        published = run_capture(grabber, 1.0, fps=50)
+        quick = lambda: DamageProbe(first=0.01, longest=0.05)  # real delays only matter for idle windows
+        with patch.object(linux_x11, "DamageProbe", quick):
+            published = run_capture(grabber, 1.0, fps=50)
         self.assertGreater(len(published), 20)  # keeps flowing at about the cap instead of 4 per second
         self.assertLessEqual(len(published), 55)
 

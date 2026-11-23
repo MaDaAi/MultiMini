@@ -298,6 +298,7 @@ class X11Capture:
         grabber = None
         last_publish = 0.0
         grab_cost = 0.0  # smoothed duration of one grab, to start the next one early enough
+        overshoot = 0.0  # smoothed lateness of grab starts (timer slack), likewise compensated
         last_grab = None
         last_size = (0, 0)
         last_check = 0.0
@@ -358,6 +359,8 @@ class X11Capture:
                                 if wait > 0:
                                     self.stop.wait(wait)  # FPS cap; then grab the newest pixels
                             grab_started=time.monotonic()
+                            late = min(max(grab_started-next_due,0.0),period_now()*.25) if next_due else 0.0
+                            overshoot = overshoot*.9+late*.1
                             w,h,pixels=grabber.grab()
                             cost = time.monotonic()-grab_started
                             grab_cost = cost if not grab_cost else grab_cost*.9+cost*.1
@@ -378,7 +381,7 @@ class X11Capture:
                             # one period after this one, minus what a grab costs, so a slow
                             # grab never makes later frames pile up behind a held publish
                             # and the cap is not lowered by the grab's own duration.
-                            next_due = last_publish+period_now()*PUBLISH_SPACING-grab_cost
+                            next_due = last_publish+period_now()*PUBLISH_SPACING-grab_cost-overshoot
                             if not driven:
                                 self.stop.wait(max(.001,next_due-time.monotonic()))
                             continue
