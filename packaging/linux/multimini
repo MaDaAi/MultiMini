@@ -7,4 +7,4 @@ export PYTHONPATH=/app/share/multimini/python/vendor
 # (faster start-up); the JVM recreates it after a runtime update.
 cache="${XDG_CACHE_HOME:-$HOME/.cache}"
 mkdir -p "$cache" 2>/dev/null || true
-exec /app/jre/bin/java -XX:+AutoCreateSharedArchive -XX:SharedArchiveFile="$cache/multimini.jsa" --enable-native-access=ALL-UNNAMED -Xms512m -Xmx2g -XX:+UseG1GC -XX:G1HeapRegionSize=32m -XX:MaxGCPauseMillis=8 -Djpackage.app-version="$(cat /app/share/multimini/VERSION)" -jar /app/share/multimini/MultiMini.jar "$@"
+exec /app/jre/bin/java -XX:+AutoCreateSharedArchive -XX:SharedArchiveFile="$cache/multimini.jsa" --enable-native-access=ALL-UNNAMED -Xms64m -Xmx2g -XX:G1PeriodicGCInterval=30000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 -XX:+UseG1GC -XX:G1HeapRegionSize=32m -XX:MaxGCPauseMillis=8 -Djpackage.app-version="$(cat /app/share/multimini/VERSION)" -jar /app/share/multimini/MultiMini.jar "$@"

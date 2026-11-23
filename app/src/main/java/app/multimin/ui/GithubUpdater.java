@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
 import java.io.*;
 
 /** Public checks are optional; private builds accept verified user-downloaded updates. */
-final class GithubUpdater {
+public final class GithubUpdater {
     private static boolean busy;
     record Prepared(Path file, String hash, String version) {}
     static void checkOnLaunch(JFrame owner,Runnable save,Runnable exit){if(Boolean.getBoolean("multimin.publicUpdates"))check(owner,save,exit,true);}
@@ -85,15 +85,7 @@ final class GithubUpdater {
         if(busy)return;
         busy=true;
         new SwingWorker<PortableRelease,Void>(){
-            protected PortableRelease doInBackground()throws Exception{
-                var client=java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(8)).followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build();
-                var request=java.net.http.HttpRequest.newBuilder(java.net.URI.create(RELEASES_API)).timeout(java.time.Duration.ofSeconds(15))
-                    .header("Accept","application/vnd.github+json").header("User-Agent","MultiMini-update-check").GET().build();
-                var response=client.send(request,java.net.http.HttpResponse.BodyHandlers.ofString());
-                if(response.statusCode()==404)return null;
-                if(response.statusCode()!=200)throw new IOException("GitHub answered "+response.statusCode());
-                return parseLatest(response.body(),platformAssetPattern());
-            }
+            protected PortableRelease doInBackground()throws Exception{return fetchLatest();}
             protected void done(){
                 busy=false;
                 try{
@@ -106,9 +98,43 @@ final class GithubUpdater {
                     if(System.getenv("FLATPAK_ID")!=null&&owner instanceof MainWindow main){flatpakInstall(main,save,exit);return;}
                     openPage(owner,release.page());
                     message(owner,"This copy runs from source. Pull the latest code and rebuild, or install the Flatpak to get automatic updates.");
-                }catch(Exception error){if(!startup)message(owner,"Update check failed: "+cause(error));}
+                }catch(Exception error){
+                    if(startup)return;
+                    // GitHub can be unreachable from the sandbox (proxy, IPv6, DNS) while the
+                    // Flatpak repository still works, so offer the Flatpak update instead.
+                    if(System.getenv("FLATPAK_ID")!=null&&owner instanceof MainWindow main){
+                        int choice=AppNotice.show(owner,main.uiPalette(),"MultiMini updates","Could not reach GitHub to check for updates ("+cause(error)+").\nFlatpak can still look for a newer version itself.","Update through Flatpak","Close");
+                        if(choice==0)flatpakInstall(main,save,exit);
+                        return;
+                    }
+                    message(owner,"Update check failed: "+cause(error));
+                }
             }
         }.execute();
+    }
+    /** GitHub's latest release for this OS, or null when it has none. HTTP/2 failures are retried as HTTP/1.1. */
+    static PortableRelease fetchLatest()throws Exception{
+        IOException last=null;
+        for(var version:new java.net.http.HttpClient.Version[]{java.net.http.HttpClient.Version.HTTP_2,java.net.http.HttpClient.Version.HTTP_1_1}){
+            try{
+                var client=java.net.http.HttpClient.newBuilder().version(version).connectTimeout(java.time.Duration.ofSeconds(8)).followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build();
+                var request=java.net.http.HttpRequest.newBuilder(java.net.URI.create(RELEASES_API)).timeout(java.time.Duration.ofSeconds(15))
+                    .header("Accept","application/vnd.github+json").header("User-Agent","MultiMini-update-check").GET().build();
+                var response=client.send(request,java.net.http.HttpResponse.BodyHandlers.ofString());
+                if(response.statusCode()==404)return null;
+                if(response.statusCode()!=200)throw new IOException("GitHub answered "+response.statusCode());
+                return parseLatest(response.body(),platformAssetPattern());
+            }catch(IOException error){last=error;}
+        }
+        throw last;
+    }
+    /** Prints the update check result for `multimini --check-updates` and the packaging checks. */
+    public static int probe(){
+        try{
+            PortableRelease release=fetchLatest();
+            System.out.println(release==null?"No release asset for this platform":"Latest "+release.version()+" ("+release.assetName()+"), running "+current());
+            return 0;
+        }catch(Exception error){System.out.println("Update check failed: "+describe(error));return 1;}
     }
     /** Linux Flatpak: update through the Flatpak portal, then relaunch the newest version. */
     private static void flatpakInstall(MainWindow owner,Runnable save,Runnable exit){
@@ -161,6 +187,19 @@ final class GithubUpdater {
     static void apply(Path script,Path file,String hash,Path install,Runnable save,Runnable exit)throws Exception{save.run();new ProcessBuilder("powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",script.toString(),"-Apply","-Prepared",file.toString(),"-ExpectedHash",hash,"-AppPid",Long.toString(ProcessHandle.current().pid()),"-InstallDir",install.toString()).redirectErrorStream(true).redirectOutput(script.getParent().resolve("update.log").toFile()).start();exit.run();}
     private static void download(JFrame owner,Path script,Path install,Runnable save,Runnable exit,String version){JDialog progress=progress(owner,"Downloading and verifying update…");new SwingWorker<String[],Void>(){protected String[] doInBackground()throws Exception{return runScript(script,"-Prepare","-CurrentVersion",current(),"-TargetVersion",version);}protected void done(){progress.dispose();try{String[] files=get();if(files.length!=2)throw new IOException("Release changed; check again");apply(script,Path.of(files[0]),files[1],install,save,exit);}catch(Exception error){busy=false;message(owner,"Update was not applied: "+cause(error));}}}.execute();}
     private static JDialog progress(JFrame owner,String text){Palette palette=owner instanceof MainWindow main?main.uiPalette():new Palette();JDialog dialog=new JDialog(owner,"Updating MultiMini",false);JPanel body=new JPanel(new java.awt.BorderLayout(12,16));body.setBackground(palette.background);body.setBorder(BorderFactory.createEmptyBorder(24,24,24,24));JLabel label=new JLabel(text);label.setForeground(palette.text);label.setFont(new java.awt.Font(java.awt.Font.DIALOG,java.awt.Font.PLAIN,14));JProgressBar bar=new JProgressBar();bar.setIndeterminate(true);bar.setForeground(palette.accent);bar.setBackground(palette.controlSurface());bar.setBorderPainted(false);body.add(label,java.awt.BorderLayout.NORTH);body.add(bar);dialog.setContentPane(body);dialog.setSize(440,140);dialog.setLocationRelativeTo(owner);dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);dialog.setVisible(true);return dialog;}
-    private static String cause(Exception error){Throwable cause=error.getCause();return cause==null?error.getMessage():cause.getMessage();}
+    private static String cause(Exception error){return describe(error);}
+    /** A readable reason. Some network exceptions carry no message, which used to show as "null". */
+    static String describe(Throwable error){
+        Throwable root=error;
+        while((root instanceof java.util.concurrent.ExecutionException||root.getMessage()==null||root.getMessage().isBlank())&&root.getCause()!=null&&root.getCause()!=root)root=root.getCause();
+        String text=root.getMessage();
+        if(text==null||text.isBlank()){
+            if(root instanceof java.net.http.HttpTimeoutException)return "the connection timed out";
+            if(root instanceof java.net.ConnectException)return "could not connect to GitHub";
+            if(root instanceof java.net.UnknownHostException)return "GitHub's address could not be resolved";
+            return root.getClass().getSimpleName();
+        }
+        return root instanceof java.net.UnknownHostException?"could not resolve "+text:text;
+    }
     private static void message(JFrame owner,String message){AppNotice.show(owner,owner instanceof MainWindow main?main.uiPalette():new Palette(),"MultiMini updates",message,"Close");}
 }

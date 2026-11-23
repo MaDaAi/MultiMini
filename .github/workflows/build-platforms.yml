@@ -107,6 +107,8 @@ jobs:
           flatpak --user install -y --noninteractive dist/*.flatpak
           flatpak --user info io.github.MaDaAi.MultiMini
           flatpak --user remotes -d
+      - name: Update check from inside the sandbox
+        run: flatpak run --user io.github.MaDaAi.MultiMini --check-updates
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-flatpak-preview

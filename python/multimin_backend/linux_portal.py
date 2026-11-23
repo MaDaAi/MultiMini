@@ -61,6 +61,22 @@ def packed_bgra(data, width, height, stride, offset=0, ring=None):
     return b"".join(data[offset + y * stride:offset + y * stride + row] for y in range(height))
 
 
+STANDARD_RATES = (360, 240, 165, 144, 120, 100, 90, 75, 60)
+
+
+def framerate_caps():
+    """Ask the compositor for its fastest stream.
+
+    Without a request KWin and others negotiate max-framerate=60/1 and drop
+    every other frame on a 144 Hz display. Each caps structure asks for at
+    least one standard rate; negotiation takes the first the compositor can
+    honour and fixes it at that rate. The last, plain structure keeps the
+    compositor's own default when it offers none of them.
+    """
+    ranges = "; ".join(f"video/x-raw,max-framerate=(fraction)[{rate}/1,1000/1]" for rate in STANDARD_RATES)
+    return f"{ranges}; video/x-raw"
+
+
 class RateLimiter:
     """Admit at most `fps` frames per second; 0 admits every frame."""
     def __init__(self, clock=None):
@@ -221,11 +237,12 @@ class PipeWireCapture:
         Gst = portal.Gst
         threads = max(1, min(4, os.cpu_count() or 1))
         self.pipeline = Gst.parse_launch(
-            f"pipewiresrc fd={fd} path={int(node)} do-timestamp=true ! "
+            f"pipewiresrc fd={fd} path={int(node)} do-timestamp=true ! capsfilter name=rate ! "
             # BGRx is accepted as-is (the alpha byte is ignored on Linux), so
             # compositors that hand out BGRx/BGRA skip the per-frame conversion.
             f"videoconvert name=convert n-threads={threads} ! video/x-raw,format={{BGRA,BGRx}} ! "
             "appsink name=frames emit-signals=true max-buffers=1 drop=true sync=false")
+        self.pipeline.get_by_name("rate").set_property("caps", Gst.Caps.from_string(framerate_caps()))
         self.sink = self.pipeline.get_by_name("frames")
         # Drop surplus frames before colour conversion, mapping and copying.
         convert_pad = self.pipeline.get_by_name("convert").get_static_pad("sink")
