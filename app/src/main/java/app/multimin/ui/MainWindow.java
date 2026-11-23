@@ -1842,6 +1842,7 @@ public final class MainWindow extends JFrame {
             }
             SwingUtilities.invokeLater(() -> {
                 try {
+                    List<Source> changedSources = new ArrayList<>(); List<BufferedImage> previousFrames = new ArrayList<>();
                     for (Map.Entry<Source, WindowFrameReader.Frame> entry : frames.entrySet()) {
                         Source source = entry.getKey();
                         if(!java.util.Objects.equals(identifiers.get(source),source.captureFramePath))continue;
@@ -1856,6 +1857,7 @@ public final class MainWindow extends JFrame {
                         }
                         BufferedImage previous = source.liveFrame;
                         source.liveFrame = frame.image;
+                        changedSources.add(source); previousFrames.add(previous);
                         if (source.kind == Source.Kind.DISPLAY && frame.backend.contains("memory")) source.nativeDisplayFrames = true;
                         source.standbyFrame = frame.backend.contains("memory") ? previous : null;
                         source.activeCaptureBackend = source.nativeGameTest
@@ -1867,7 +1869,11 @@ public final class MainWindow extends JFrame {
                         source.captureLatencyMillis = frame.latencyMillis; source.capturedFrames++;
                         source.producedNanos = frame.producedNanos;
                     }
-                    if (!frames.isEmpty() && !preview.hasLinuxDirectSource()) preview.repaint();
+                    if (!frames.isEmpty() && !preview.hasLinuxDirectSource()) {
+                        // Partial repaints need the previous image, which the next scan reuses as its buffer.
+                        for (int i = 0; i < changedSources.size(); i++) preview.sourceFrameChanged(changedSources.get(i), previousFrames.get(i));
+                        if (changedSources.isEmpty()) preview.repaint();
+                    }
                     Source pending = targetSizePending;
                     if (pending != null && multitask && (pending.liveFrame != null || pending.nativeSourceWidth > 0)) {
                         int index = activeView.sources.indexOf(pending);

@@ -117,6 +117,28 @@ public final class PreviewPanel extends JPanel {
     public double getMeasuredFps() { return measuredFps; }
     public double getLastPaintMillis() { return lastPaintMillis; }
     public int getAcceleratedSourceCount() { return frameTextures.countAcceleratedSources(); }
+
+    /**
+     * Called on the EDT after a source received a new capture. On Linux/macOS every full-frame
+     * repaint uploads the whole frame to the X server, so only the rows that actually changed
+     * are repainted; Swing keeps the rest from the previous paint. Other platforms repaint fully.
+     */
+    void sourceFrameChanged(Source source, java.awt.image.BufferedImage previous) {
+        java.awt.image.BufferedImage frame = source.liveFrame;
+        int index = view.sources.indexOf(source);
+        if (!app.multimin.backend.PlatformSupport.isPortable() || frame == null || previous == null || previous == frame
+            || index < 0 || source.nativeCompositionActive || source == linuxDirectSource
+            || (locked && needsTransparentOverlay()) || getWidth() <= 0 || getHeight() <= 0
+            || !isSourceRendered(index) || previous.getType() != frame.getType()) { repaint(); return; }
+        int[] rows = FrameDiff.changedRows(previous, frame);
+        if (rows == null) return;
+        Rectangle bounds = sourceBoundsInPanel(index);
+        int height = Math.max(1, frame.getHeight());
+        int top = bounds.y + (int) Math.floor((double) rows[0] * bounds.height / height) - 2;
+        int bottom = bounds.y + (int) Math.ceil((double) rows[1] * bounds.height / height) + 2;
+        if (bottom - top >= bounds.height) { repaint(); return; }
+        repaint(bounds.x - 2, top, bounds.width + 4, bottom - top);
+    }
     @Override public void removeNotify() { guideTimer.stop();guideX=guideY=snapX=snapY=-1; if(linuxOverlayFrame!=null){linuxOverlayFrame.flush();linuxOverlayFrame=null;} windowSurfaces.close(); frameTextures.close(); super.removeNotify(); }
     public void setLocked(boolean locked) { if(!locked)windowSurfaces.reset(); this.locked = locked; setOpaque(!locked); dragStart = null; resizing = false; setCursor(Cursor.getDefaultCursor()); repaint(); }
     public void refreshNativePresentation() {

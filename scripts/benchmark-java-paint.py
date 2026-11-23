@@ -32,15 +32,15 @@ SCENARIOS = [('configure', 'window'), ('locked', 'window'), ('locked', 'display'
 IMAGE_TYPES = {'rgb': 1, 'argb': 2, 'argb_pre': 3}
 
 
-def run_one(display, classes, jar, label, pipeline, res, scenario, extra, args):
+def run_one(display, classes, jar, label, pipeline, res, scenario, extra, args, pattern='full'):
     mode, kind = scenario
-    out = os.path.join(args.out, 'raw-%s-%s-%dx%d-%s-%s%s.json' % (label, pipeline, res[0], res[1], mode, kind,
+    out = os.path.join(args.out, 'raw-%s-%s-%dx%d-%s-%s-%s%s.json' % (label, pipeline, res[0], res[1], mode, kind, pattern,
                                                                   ('-' + extra[0].split('=')[-1]) if extra else ''))
     cmd = ['java'] + JVM + PIPELINES[pipeline] + extra + ['-cp', os.pathsep.join((classes, jar)),
            'app.multimin.ui.LinuxPaintBench',
            'python=' + sys.executable, 'producer=' + os.path.join(ROOT, 'scripts', 'bench-frame-producer.py'),
            'pythonpath=' + os.path.join(ROOT, 'python'), 'width=%d' % res[0], 'height=%d' % res[1],
-           'fps=%d' % args.fps, 'mode=' + mode, 'kind=' + kind, 'warmup=%s' % args.warmup,
+           'fps=%d' % args.fps, 'pattern=' + pattern, 'mode=' + mode, 'kind=' + kind, 'warmup=%s' % args.warmup,
            'seconds=%s' % args.seconds, 'out=' + out, 'sync=%s' % str(args.sync).lower()]
     env = dict(os.environ, DISPLAY=display)
     try:
@@ -52,7 +52,7 @@ def run_one(display, classes, jar, label, pipeline, res, scenario, extra, args):
     except Exception as error:  # keep going: report the failure in the table
         detail = getattr(error, 'stderr', '') or ''
         return {'error': str(error)[:200] + ' ' + detail[-400:]}
-    data.update(label=label, pipeline=pipeline, image_type=extra[0].split('=')[-1] if extra else 'default')
+    data.update(label=label, pipeline=pipeline, pattern=pattern, image_type=extra[0].split('=')[-1] if extra else 'default')
     return data
 
 
@@ -70,7 +70,6 @@ def run(args):
         os.makedirs(classes)
         subprocess.run(['javac', '--release', '25', '-cp', jars[0][1], '-d', classes,
                         os.path.join(ROOT, 'native', 'tests', 'LinuxPaintBench.java')], check=True)
-        pipelines = list(PIPELINES) if args.full else ['xrender']
         for res in RESOLUTIONS:
             micro = subprocess.run(['java', '-cp', os.pathsep.join((classes, jars[0][1])), 'app.multimin.ui.LinuxPaintBench',
                                     'micro=true', 'width=%d' % res[0], 'height=%d' % res[1], 'mode=configure'],
@@ -79,20 +78,27 @@ def run(args):
                 results.append({'micro': json.loads(micro.stdout.strip().splitlines()[-1])['micro'], 'res': res})
             except Exception:
                 results.append({'micro_error': (micro.stderr or micro.stdout)[-300:], 'res': res})
+        # Core comparison: default pipeline, every scenario, content that changes everywhere or in one region.
         for label, jar in jars:
-            for pipeline in pipelines:
-                for res in RESOLUTIONS:
-                    for scenario in SCENARIOS:
-                        print('run', label, pipeline, res, scenario, flush=True)
-                        results.append(run_one(display, classes, jar, label, pipeline, res, scenario, [], args))
+            for res in RESOLUTIONS:
+                for scenario in SCENARIOS:
+                    for pattern in ('full', 'region'):
+                        print('run', label, res, scenario, pattern, flush=True)
+                        results.append(run_one(display, classes, jar, label, 'xrender', res, scenario, [], args, pattern))
+        if args.full:
+            for label, jar in jars:
+                for pipeline in ('no-xrender', 'opengl'):
+                    for res in RESOLUTIONS:
+                        for scenario in SCENARIOS[:2]:
+                            print('run', label, pipeline, res, scenario, flush=True)
+                            results.append(run_one(display, classes, jar, label, pipeline, res, scenario, [], args))
         if args.types:
             label, jar = jars[-1]
             for name, code in IMAGE_TYPES.items():
                 for res in RESOLUTIONS:
-                    for scenario in SCENARIOS[:2]:
-                        print('run type', name, res, scenario, flush=True)
-                        results.append(run_one(display, classes, jar, label, 'xrender', res, scenario,
-                                               ['-Dmultimin.frameImageType=%d' % code], args))
+                    print('run type', name, res, flush=True)
+                    results.append(run_one(display, classes, jar, label, 'xrender', res, SCENARIOS[1],
+                                           ['-Dmultimin.frameImageType=%d' % code], args))
     finally:
         xvfb.terminate()
     with open(os.path.join(args.out, 'results.json'), 'w') as f:
@@ -118,7 +124,7 @@ def markdown(results, args):
             lines.append('ERROR ' + r['error'].replace('|', '/').replace('\n', ' ')[:600])
             continue
         lines.append('%s/%s/%s | %dx%d %s/%s | %.1f | %.0f | %.2f/%.2f | %.2f | %.3f | %.1f/%.1f | %.0f | %.0f | %.0f | %.0f | %.0f | %.1f%s' % (
-            r['label'], r['pipeline'], r['image_type'], r['width'], r['height'], r['mode'], r['kind'],
+            r['label'], r['pipeline'], r['image_type'] + '/' + r.get('pattern', 'full'), r['width'], r['height'], r['mode'], r['kind'],
             r['paints_per_s'], r['edt_busy_pct'],
             r['paint_ms']['p50'], r['paint_ms']['p95'], r['read_ms']['mean'], r['apply_ms']['mean'],
             r['age_publish_to_paint_ms']['p50'], r['age_publish_to_paint_ms']['p95'], r['jvm_cpu_pct'],

@@ -19,6 +19,8 @@ p.add_argument('--height', type=int, required=True)
 p.add_argument('--fps', type=float, required=True)
 p.add_argument('--seconds', type=float, required=True)
 p.add_argument('--id', default='bench')
+p.add_argument('--pattern', choices=('full', 'region', 'bar'), default='full',
+               help='full: every pixel changes; region: a 640x360 area changes; bar: a full-height bar moves')
 a = p.parse_args()
 
 w, h = a.width, a.height
@@ -27,12 +29,25 @@ base_row = b''.join(bytes((x * 255 // w, 90, 255 - x * 255 // w, 255)) for x in 
 background = bytearray(base_row * h)
 bar = bytes((255, 255, 255, 255)) * 120
 pool = []
-for k in range(16):
-    frame = bytearray(background)
-    left = (k * 97) % (w - 120)
-    for y in range(h):
-        frame[y * row_bytes + left * 4: y * row_bytes + (left + 120) * 4] = bar
-    pool.append(bytes(frame))
+if a.pattern == 'full':
+    for k in range(16):
+        off = (53 * k % w) * 4
+        pool.append((base_row[off:] + base_row[:off]) * h)
+elif a.pattern == 'region':
+    rx, ry, rw, rh = 100, 100, 640, 360
+    for k in range(16):
+        frame = bytearray(background)
+        left = rx + (k * 37) % (rw - 60)
+        for y in range(ry, ry + rh):
+            frame[y * row_bytes + left * 4: y * row_bytes + (left + 60) * 4] = bar[:240]
+        pool.append(bytes(frame))
+else:
+    for k in range(16):
+        frame = bytearray(background)
+        left = (k * 97) % (w - 120)
+        for y in range(h):
+            frame[y * row_bytes + left * 4: y * row_bytes + (left + 120) * 4] = bar
+        pool.append(bytes(frame))
 
 
 def notify():

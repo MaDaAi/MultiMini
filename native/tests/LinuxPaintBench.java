@@ -58,6 +58,16 @@ public final class LinuxPaintBench {
     static PreviewPanel preview;
     static final String ID = "bench";
 
+    static java.lang.reflect.Method frameChanged;
+    static {
+        try { frameChanged = PreviewPanel.class.getDeclaredMethod("sourceFrameChanged", Source.class, BufferedImage.class); frameChanged.setAccessible(true); }
+        catch (ReflectiveOperationException none) { frameChanged = null; }
+    }
+    static void notifyChanged(BufferedImage previous) {
+        try { if (frameChanged != null) frameChanged.invoke(preview, source, previous); else preview.repaint(); }
+        catch (ReflectiveOperationException error) { preview.repaint(); }
+    }
+
     static void request() {
         if (stopping || !scanQueued.compareAndSet(false, true)) return;
         newFramePending.set(false);
@@ -83,7 +93,7 @@ public final class LinuxPaintBench {
                         source.capturedFrames++;
                         source.producedNanos = result.producedNanos;
                         if (recording) readAgeMs.add((double) result.latencyMillis);
-                        preview.repaint();
+                        notifyChanged(previous);
                     }
                 } finally {
                     if (recording && result != null) applyMs.add((System.nanoTime() - a0) / 1e6);
@@ -94,13 +104,13 @@ public final class LinuxPaintBench {
         });
     }
 
-    /** Wraps the preview to time every paint pass the way a user sees it. */
-    static final class Timed extends JPanel {
+    /** Times every Swing paint pass (including the back-buffer flush) the way a user sees it. */
+    static final class TimedRepaintManager extends RepaintManager {
         final boolean sync;
-        Timed(boolean sync) { super(new BorderLayout()); this.sync = sync; setOpaque(true); }
-        @Override protected void paintChildren(Graphics g) {
+        TimedRepaintManager(boolean sync) { this.sync = sync; }
+        @Override public void paintDirtyRegions() {
             long t0 = System.nanoTime();
-            super.paintChildren(g);
+            super.paintDirtyRegions();
             if (sync) Toolkit.getDefaultToolkit().sync();
             long t1 = System.nanoTime();
             if (!recording) return;
@@ -157,12 +167,19 @@ public final class LinuxPaintBench {
         BufferedImage argb = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         BufferedImage pre = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB_PRE);
         BufferedImage compat = gc.createCompatibleImage(w, h);
+        for (BufferedImage image : new BufferedImage[]{rgb, argb, pre})
+            if (image.getRaster().getDataBuffer() instanceof java.awt.image.DataBufferInt data) data.getData();
+        int[] shrink = new int[w * 3 / 4 * (h * 3 / 4)];
+        BufferedImage shrunk = new BufferedImage(w * 3 / 4, h * 3 / 4, BufferedImage.TYPE_INT_RGB);
+        ((java.awt.image.DataBufferInt) shrunk.getRaster().getDataBuffer()).getData();
+        int[] source = ((java.awt.image.DataBufferInt) rgb.getRaster().getDataBuffer()).getData();
         JFrame f = new JFrame(); f.setUndecorated(true); f.setSize(1280, 720); f.setVisible(true);
         Thread.sleep(500);
         String[] names = {"draw_rgb_native", "draw_argb_native", "draw_argbpre_native", "draw_compatible_native",
             "draw_rgb_scaled_bilinear", "draw_argb_scaled_bilinear", "draw_rgb_scaled_nearest",
             "upload_rgb_to_volatile", "draw_volatile_scaled_bilinear", "fill_aa_roundrect_1280x720", "fill_rect_1280x720",
-            "draw_rgb_scaled_bilinear_aa_hint_on", "fill_aa_roundrect_then_draw_scaled"};
+            "draw_rgb_scaled_bilinear_aa_hint_on", "fill_aa_roundrect_then_draw_scaled",
+            "draw_rgb_native_clip_quarter_height", "draw_rgb_native_clip_tenth_height", "cpu_downscale_nearest_3_4_then_draw", "arrays_mismatch_identical_frames"};
         VolatileImage vol = gc.createCompatibleVolatileImage(w, h, Transparency.TRANSLUCENT);
         vol.validate(gc);
         boolean first = true;
@@ -184,6 +201,15 @@ public final class LinuxPaintBench {
                     case "fill_rect_1280x720" -> { g.setColor(Color.DARK_GRAY); g.fillRect(0, 0, 1280, 720); }
                     case "draw_rgb_scaled_bilinear_aa_hint_on" -> { g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON); g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(rgb, 0, 0, 1280, 720, null); }
                     case "fill_aa_roundrect_then_draw_scaled" -> { g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON); g.setColor(Color.DARK_GRAY); g.fill(new java.awt.geom.RoundRectangle2D.Float(0, 0, 1280, 720, 10, 10)); g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(rgb, 0, 0, 1280, 720, null); }
+                    case "draw_rgb_native_clip_quarter_height" -> { g.setClip(0, 0, w, h / 4); g.drawImage(rgb, 0, 0, null); }
+                    case "draw_rgb_native_clip_tenth_height" -> { g.setClip(0, 0, w, h / 10); g.drawImage(rgb, 0, 0, null); }
+                    case "cpu_downscale_nearest_3_4_then_draw" -> {
+                        int tw = w * 3 / 4, th = h * 3 / 4;
+                        int[] dst = ((java.awt.image.DataBufferInt) shrunk.getRaster().getDataBuffer()).getData();
+                        for (int y = 0; y < th; y++) { int row = (y * 4 / 3) * w; for (int x = 0; x < tw; x++) dst[y * tw + x] = source[row + x * 4 / 3]; }
+                        g.drawImage(shrunk, 0, 0, null);
+                    }
+                    case "arrays_mismatch_identical_frames" -> { Arrays.mismatch(source, 0, source.length, source, 0, source.length); }
                     default -> { g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(vol, 0, 0, 1280, 720, null); }
                 }
                 Toolkit.getDefaultToolkit().sync();
@@ -216,7 +242,7 @@ public final class LinuxPaintBench {
 
         ProcessBuilder builder = new ProcessBuilder(arg.get("python"), arg.get("producer"),
             "--width", String.valueOf(width), "--height", String.valueOf(height), "--fps", String.valueOf(fps),
-            "--seconds", String.valueOf(warmup + seconds + 5), "--id", ID);
+            "--seconds", String.valueOf(warmup + seconds + 5), "--id", ID, "--pattern", arg.getOrDefault("pattern", "full"));
         builder.environment().put("PYTHONPATH", arg.get("pythonpath"));
         builder.redirectErrorStream(true);
         Process producer = builder.start();
@@ -240,11 +266,10 @@ public final class LinuxPaintBench {
         int panelW = locked ? 1920 : 1600, panelH = locked ? 1080 : 900;
         SwingUtilities.invokeAndWait(() -> {
             preview = new PreviewPanel(new Palette(), view);
-            Timed wrapper = new Timed(sync);
-            wrapper.add(preview, BorderLayout.CENTER);
+            RepaintManager.setCurrentManager(new TimedRepaintManager(sync));
             frame[0] = new JFrame("bench");
             frame[0].setUndecorated(true);
-            frame[0].setContentPane(wrapper);
+            frame[0].setContentPane(preview);
             frame[0].setSize(panelW, panelH);
             frame[0].setLocation(0, 0);
             preview.setLocked(locked);
