@@ -1,0 +1,39 @@
+name: Java paint benchmark (temporary)
+on:
+  push:
+    branches: [java-bench]
+permissions:
+  contents: read
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Install X server, GL and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ libx11-dev libxt-dev xvfb x11-utils libgl1-mesa-dri libglx-mesa0 mesa-utils
+      - name: Build current source
+        run: ./scripts/build-linux.sh
+      - name: Build baseline
+        run: |
+          git worktree add "$RUNNER_TEMP/base" a7bf52384c2248a3c76d182f6ffd988b0eae33fb
+          (cd "$RUNNER_TEMP/base" && ./scripts/build-linux.sh)
+          cp "$RUNNER_TEMP/base/build/internal/MultiMini-Linux.jar" "$RUNNER_TEMP/base.jar"
+      - name: Run benchmark
+        run: python3 scripts/benchmark-java-paint.py run --jar base="$RUNNER_TEMP/base.jar" --out build/paint-bench --full
+      - name: Publish summary
+        if: always()
+        run: '[ -f build/paint-bench/results.md ] && cat build/paint-bench/results.md >> "$GITHUB_STEP_SUMMARY" || true'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: java-paint-bench
+          path: build/paint-bench/results.*
