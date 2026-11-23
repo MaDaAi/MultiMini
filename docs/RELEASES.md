@@ -80,7 +80,7 @@ step with `VERSION`; software centres show those entries as the changelog.
    (`test-updater.ps1`, `test-portable-updater.ps1`), native build, then
    `package-windows.ps1 -PortableOnly` and `hash-portable.ps1`.
 4. Linux: `scripts/check-linux.sh`, `scripts/package-linux.sh`, install the
-   bundle, run the live checks in docs/LINUX_VERIFICATION.md.
+   bundle, check capture, input and shortcuts on a real desktop.
 5. Create one release for the tag and upload every platform's asset with its
    `.sha256`. Never overwrite assets that are already published.
 

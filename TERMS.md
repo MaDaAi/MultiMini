@@ -27,4 +27,4 @@ Material changes to this agreement or privacy practices require a new agreement 
 The Privacy Policy and Cookie and Local Storage Policy describe current data handling. The Refund Policy explains the absence of in-app billing and the position for purchases through another channel. Acknowledging a privacy notice does not authorize unrelated marketing or tracking. Mandatory consumer rights and applicable privacy laws continue to apply regardless of these terms. No term requires confidential information to be posted publicly.
 
 ## Publisher and contact
-Publisher: Mansoor Alakoozai, Ontario, Canada. General support: https://github.com/MaDaAi/MultiMini/issues (public). A confidential privacy contact and business mailing address have not been published in this build. Do not post sensitive information in public issues. These documents must be reviewed before any paid offer or new personal-data collection is introduced.
+Publisher: Mansoor Alakoozai, Ontario, Canada. General support: https://github.com/MaDaAi/MultiMini/issues (public). Do not post sensitive information in public issues.
