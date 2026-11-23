@@ -55,15 +55,30 @@ public final class GithubUpdater {
         var asset=Pattern.compile("\"name\"\\s*:\\s*\""+assetPattern+"\"").matcher(json);
         if(!asset.find())return null;
         var page=Pattern.compile("\"html_url\"\\s*:\\s*\"(https://github\\.com/MaDaAi/MultiMini/releases/tag/[^\"]+)\"").matcher(json);
-        var body=Pattern.compile("\"body\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"").matcher(json);
         String name=asset.group().substring(asset.group().indexOf("MultiMini-"),asset.group().length()-1);
-        return new PortableRelease(asset.group(1),body.find()?unescapeJson(body.group(1)):"",page.find()?page.group(1):"https://github.com/MaDaAi/MultiMini/releases",
+        return new PortableRelease(asset.group(1),unescapeJson(jsonString(json,"body")),page.find()?page.group(1):"https://github.com/MaDaAi/MultiMini/releases",
             name,downloadUrl(json,name),downloadUrl(json,name+".sha256"));
     }
     /** Only accept download URLs on this repository's release host for the exact asset name. */
     private static String downloadUrl(String json,String name){
         var url=Pattern.compile("\"browser_download_url\"\\s*:\\s*\"("+Pattern.quote(DOWNLOAD_PREFIX)+"[^\"/]+/"+Pattern.quote(name)+")\"").matcher(json);
         return url.find()?url.group(1):"";
+    }
+    /**
+     * The raw (still escaped) value of the first string field `key`, or "".
+     * Scanned by hand: a regex over long release notes overflowed the stack,
+     * which surfaced as "Update check failed: null".
+     */
+    static String jsonString(String json,String key){
+        var start=Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"").matcher(json);
+        if(!start.find())return "";
+        int from=start.end();
+        for(int i=from;i<json.length();i++){
+            char c=json.charAt(i);
+            if(c=='\\'){i++;continue;}
+            if(c=='"')return json.substring(from,i);
+        }
+        return "";
     }
     static String unescapeJson(String text){
         StringBuilder out=new StringBuilder(text.length());
