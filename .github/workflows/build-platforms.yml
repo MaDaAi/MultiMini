@@ -60,7 +60,8 @@ jobs:
           javac --release 25 -cp build/internal/MultiMini-Linux.jar -d build/checks app/src/test/java/app/multimin/ui/UpdateParseCheck.java
           java -Djava.awt.headless=true -cp build/checks:build/internal/MultiMini-Linux.jar app.multimin.ui.UpdateParseCheck
   linux-benchmark:
-    # Manual only: measures the X11 capture pipeline under Xvfb and uploads the results.
+    # Manual only: measures the X11 capture pipeline under Xvfb, Xvfb + xcompmgr and
+    # Xwayland (headless weston) and uploads the results.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -72,10 +73,10 @@ jobs:
       - name: Install X server, compositor and backend dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ libx11-dev libxt-dev xvfb xcompmgr x11-utils dbus python3-xlib python3-gi gir1.2-gst-plugins-base-1.0 gstreamer1.0-pipewire
+          sudo apt-get install -y g++ libx11-dev libxt-dev xvfb xcompmgr x11-utils dbus python3-xlib python3-gi gir1.2-gst-plugins-base-1.0 gstreamer1.0-pipewire weston xwayland mesa-utils libgl1-mesa-dri libegl1 libxcomposite1 libxdamage1
       - run: ./scripts/build-linux.sh
       - name: Run pipeline benchmark
-        run: dbus-run-session -- /usr/bin/python3 scripts/benchmark-linux.py run --jar build/internal/MultiMini-Linux.jar --out build/bench
+        run: dbus-run-session -- /usr/bin/python3 scripts/benchmark-linux.py run --jar build/internal/MultiMini-Linux.jar --out build/bench --compositors none,xcompmgr,xwayland
       - name: Publish summary
         if: always()
         run: '[ -f build/bench/results.md ] && cat build/bench/results.md >> "$GITHUB_STEP_SUMMARY" || true'
@@ -83,7 +84,9 @@ jobs:
         if: always()
         with:
           name: linux-benchmark-results
-          path: build/bench/results.*
+          path: |
+            build/bench/results.*
+            build/bench/weston-*.log
   flatpak:
     runs-on: ubuntu-latest
     steps:

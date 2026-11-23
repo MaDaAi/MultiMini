@@ -2,6 +2,7 @@ import contextlib
 import ctypes
 import importlib
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -263,3 +264,151 @@ class PreloadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from multimin_backend import linux_x11
+from multimin_backend.linux_x11 import DamageProbe, X11Capture, hold_for_publish
+
+
+class HoldForPublishTests(unittest.TestCase):
+    def test_no_wait_when_far_enough_apart(self):
+        self.assertEqual(hold_for_publish(10.0, 0.0167, 10.02), 0.0)
+
+    def test_waits_for_the_remainder_of_the_spacing(self):
+        wait = hold_for_publish(10.0, 0.020, 10.005)
+        self.assertAlmostEqual(wait, 0.020 * linux_x11.PUBLISH_SPACING - 0.005, places=6)
+
+    def test_first_frame_never_waits(self):
+        self.assertEqual(hold_for_publish(0.0, 0.0167, time.monotonic()), 0.0)
+
+    def test_spacing_is_at_least_one_period(self):
+        # linux_service pushes its deadline a full period ahead per accepted frame;
+        # frames closer than a period make it drop one every few frames.
+        self.assertGreaterEqual(linux_x11.PUBLISH_SPACING, 1.0)
+
+
+class DamageProbeTests(unittest.TestCase):
+    def test_first_look_is_immediate(self):
+        self.assertEqual(DamageProbe().due_in(5.0), 0.0)
+
+    def test_idle_window_backs_off_to_the_longest_delay(self):
+        probe = DamageProbe(first=0.1, longest=1.0)
+        now = 0.0
+        delays = []
+        for _ in range(6):
+            probe.probed(now, changed=False, explained=False)
+            delays.append(probe.delay)
+            now += probe.delay
+        self.assertEqual(delays, [0.2, 0.4, 0.8, 1.0, 1.0, 1.0])
+        self.assertTrue(probe.trusted)
+
+    def test_damage_resets_the_wait(self):
+        probe = DamageProbe()
+        probe.probed(0.0, changed=False, explained=False)
+        probe.probed(0.2, changed=False, explained=False)
+        probe.damaged(1.0)
+        self.assertAlmostEqual(probe.due_in(1.0), probe.first)
+        self.assertAlmostEqual(probe.due_in(1.0 + probe.first), 0.0)
+
+    def test_change_explained_by_damage_is_not_a_surprise(self):
+        probe = DamageProbe(limit=2)
+        for _ in range(10):
+            probe.probed(0.0, changed=True, explained=True)
+        self.assertTrue(probe.trusted)
+
+    def test_unexplained_changes_stop_trusting_damage(self):
+        probe = DamageProbe(limit=3)
+        probe.probed(0.0, changed=True, explained=False)
+        probe.probed(0.1, changed=True, explained=False)
+        self.assertTrue(probe.trusted)
+        probe.probed(0.2, changed=True, explained=False)
+        self.assertFalse(probe.trusted)
+
+
+class FakeXlib:
+    """Just enough python-xlib for X11Capture's loop; no X server needed."""
+    IsViewable = 2
+    DestroyNotify = 17
+    StructureNotifyMask = 1 << 17
+
+    def install(self):
+        fake = self
+        window = types.SimpleNamespace(change_attributes=lambda **k: None,
+                                       get_attributes=lambda: types.SimpleNamespace(map_state=fake.IsViewable))
+        display_object = types.SimpleNamespace(create_resource_object=lambda *a: window, sync=lambda: None,
+                                               pending_events=lambda: 0, close=lambda: None)
+        module = types.ModuleType("Xlib")
+        module.display = types.SimpleNamespace(Display=lambda: display_object)
+        module.X = fake
+        return patch.dict("sys.modules", {"Xlib": module})
+
+
+class FakeGrabber:
+    """Stands in for XShmGrabber; every grab returns what `frames` yields."""
+
+    def __init__(self, frames, silent=True, delays=None):
+        self.frames, self.silent, self.delays = frames, silent, delays
+        self.grabs = 0
+        self.event_driven = True
+        self.closed = False
+
+    def wait_for_change(self, timeout):
+        if timeout:
+            time.sleep(min(timeout, 0.01))
+        return not self.silent
+
+    def grab(self):
+        self.grabs += 1
+        if self.delays:
+            time.sleep(self.delays[self.grabs % len(self.delays)])
+        return 2, 2, bytearray(self.frames(self.grabs))
+
+    def close(self):
+        self.closed = True
+
+
+def run_capture(grabber, seconds, fps=200):
+    published = []
+    fake = FakeXlib()
+    with fake.install(), patch("multimin_backend.linux_xshm.XShmGrabber", lambda xid: grabber):
+        capture = X11Capture(1, lambda w, h, px: published.append((time.perf_counter(), bytes(px))),
+                             lambda message: None, lambda: fps)
+        time.sleep(seconds)
+        capture.close()
+    return published
+
+
+class X11CaptureLoopTests(unittest.TestCase):
+    def test_idle_window_without_damage_is_shown_once_then_left_alone(self):
+        grabber = FakeGrabber(lambda n: b"\x07" * 16)
+        published = run_capture(grabber, 0.8)
+        self.assertEqual(len(published), 1)  # a static window still gets its first frame
+        self.assertLess(grabber.grabs, 6)  # and the probes back off instead of polling at the cap
+        self.assertTrue(grabber.closed)
+
+    def test_silent_damage_with_changing_pixels_falls_back_to_timer_pacing(self):
+        grabber = FakeGrabber(lambda n: bytes([n % 250]) * 16)
+        quick = lambda: DamageProbe(first=0.01, longest=0.05)  # real delays only matter for idle windows
+        with patch.object(linux_x11, "DamageProbe", quick):
+            published = run_capture(grabber, 1.0, fps=50)
+        self.assertGreater(len(published), 8)  # keeps flowing instead of the 4 per second the damage timeout allowed
+        self.assertLessEqual(len(published), 55)
+
+    def test_working_damage_drives_every_grab(self):
+        grabber = FakeGrabber(lambda n: bytes([n % 250]) * 16, silent=False)
+        published = run_capture(grabber, 0.5, fps=40)
+        self.assertGreater(len(published), 3)
+        self.assertLessEqual(len(published), 22)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "needs a precise clock; shared Windows and macOS runners are too coarse")
+    def test_jittery_grabs_are_never_published_early(self):
+        # Grab times that shrink and grow must not produce frames closer together
+        # than the service tolerates, or every early frame is dropped there.
+        grabber = FakeGrabber(lambda n: bytes([n % 250]) * 16, silent=False,
+                              delays=[0.0, 0.006, 0.001, 0.007, 0.0, 0.005])
+        fps = 50
+        published = run_capture(grabber, 1.0, fps=fps)
+        times = [t for t, _ in published]
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        self.assertGreater(len(gaps), 5)
+        self.assertGreaterEqual(min(gaps), (1 / fps) * 0.999)

@@ -289,20 +289,20 @@ class XShmGrabber:
                 drawable = pixmap
                 offset = border.value
         try:
+            # XShmGetImage is a round trip: its reply arrives after every error
+            # for the earlier requests (NameWindowPixmap), so the error counter
+            # is current when it returns and no XSync is needed.
             before = _error_counter[0]
             ok = self.xext.XShmGetImage(self.display, drawable, self.image, offset, offset, ALL_PLANES)
-            self.x11.XSync(self.display, 0)
             if (not ok or _error_counter[0] != before) and pixmap:
                 # The backing pixmap may not include a border offset; retry at origin.
                 before = _error_counter[0]
                 ok = self.xext.XShmGetImage(self.display, drawable, self.image, 0, 0, ALL_PLANES)
-                self.x11.XSync(self.display, 0)
             if (not ok or _error_counter[0] != before) and pixmap:
                 # Not redirected (no compositor): there is no backing pixmap, so
                 # read the window itself, and stop naming pixmaps for it.
                 before = _error_counter[0]
                 ok = self.xext.XShmGetImage(self.display, self.xid, self.image, 0, 0, ALL_PLANES)
-                self.x11.XSync(self.display, 0)
                 if ok and _error_counter[0] == before:
                     self.composite = False
             if not ok or _error_counter[0] != before:
