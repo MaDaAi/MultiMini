@@ -188,10 +188,22 @@ public final class PreviewPanel extends JPanel {
     }
     private double macBackingScale() { return macBackingScale(getGraphicsConfiguration()); }
 
+    private DisplayMode cachedDisplayMode;
+    private GraphicsDevice cachedDisplayDevice;
+    private long cachedDisplayAt;
+
     private DisplayMode referenceDisplay() {
         GraphicsConfiguration configuration = getGraphicsConfiguration();
-        return (configuration == null ? GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
-            : configuration.getDevice()).getDisplayMode();
+        GraphicsDevice device = configuration == null ? GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+            : configuration.getDevice();
+        if (!app.multimin.backend.PlatformSupport.isPortable()) return device.getDisplayMode();
+        // On X11 every getDisplayMode() is a synchronous RandR round trip that waits for the
+        // server to drain queued frame uploads; it was called several times per paint.
+        long now = System.nanoTime();
+        if (cachedDisplayMode == null || device != cachedDisplayDevice || now - cachedDisplayAt > 500_000_000L) {
+            cachedDisplayMode = device.getDisplayMode(); cachedDisplayDevice = device; cachedDisplayAt = now;
+        }
+        return cachedDisplayMode;
     }
 
     private void beginInteraction(MouseEvent event) {

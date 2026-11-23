@@ -29,6 +29,8 @@ PIPELINES = {
 }
 RESOLUTIONS = [(1920, 1080), (2560, 1440)]
 SCENARIOS = [('configure', 'window'), ('locked', 'window'), ('locked', 'display')]
+NOISE = ('EventDispatchThread', 'EventQueue.', 'InvocationEvent', 'ForkJoinPool', 'AbstractQueued', 'LockSupport',
+         'RepaintManager', 'JComponent', 'JLayeredPane', 'LinuxPaintBench')
 IMAGE_TYPES = {'rgb': 1, 'argb': 2, 'argb_pre': 3}
 
 
@@ -128,7 +130,7 @@ def markdown(results, args):
             prof = r.get('profile', {})
             lines.append('PROFILE %s %dx%d %s/%s (%s samples, %% of EDT samples) INCLUSIVE: %s SELF: %s' % (
                 r['label'], r['width'], r['height'], r['mode'], r['kind'], prof.get('samples'),
-                ' '.join(prof.get('inclusive', [])), ' '.join(prof.get('self', []))))
+                ' '.join(n for n in prof.get('inclusive', []) if not n.startswith(NOISE)), ' '.join(prof.get('self', []))))
             continue
         if 'error' in r:
             lines.append('ERROR ' + r['error'].replace('|', '/').replace('\n', ' ')[:600])

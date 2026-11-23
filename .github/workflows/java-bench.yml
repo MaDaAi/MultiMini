@@ -28,7 +28,7 @@ jobs:
           (cd "$RUNNER_TEMP/base" && ./scripts/build-linux.sh)
           cp "$RUNNER_TEMP/base/build/internal/MultiMini-Linux.jar" "$RUNNER_TEMP/base.jar"
       - name: Run benchmark
-        run: python3 scripts/benchmark-java-paint.py run --jar base="$RUNNER_TEMP/base.jar" --jar new=build/internal/MultiMini-Linux.jar --out build/paint-bench --quick
+        run: python3 scripts/benchmark-java-paint.py run --jar base="$RUNNER_TEMP/base.jar" --jar new=build/internal/MultiMini-Linux.jar --out build/paint-bench --full --types
       - name: Publish summary
         if: always()
         run: '[ -f build/paint-bench/results.md ] && cat build/paint-bench/results.md >> "$GITHUB_STEP_SUMMARY" || true'
