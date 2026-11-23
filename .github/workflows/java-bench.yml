@@ -32,6 +32,17 @@ jobs:
       - name: Publish summary
         if: always()
         run: '[ -f build/paint-bench/results.md ] && cat build/paint-bench/results.md >> "$GITHUB_STEP_SUMMARY" || true'
+      - name: Echo results as annotations (readable without a login)
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          p = 'build/paint-bench/results.md'
+          text = open(p).read() if os.path.exists(p) else 'no results'
+          chunks = [text[i:i + 12000] for i in range(0, len(text), 12000)]
+          for n, c in enumerate(chunks):
+              print('::notice title=bench-%d::' % n + c.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
