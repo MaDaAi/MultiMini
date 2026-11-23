@@ -28,7 +28,7 @@ jobs:
           (cd "$RUNNER_TEMP/base" && ./scripts/build-linux.sh)
           cp "$RUNNER_TEMP/base/build/internal/MultiMini-Linux.jar" "$RUNNER_TEMP/base.jar"
       - name: Run benchmark
-        run: python3 scripts/benchmark-java-paint.py run --jar base=build/internal/MultiMini-Linux.jar --out build/paint-bench --full --types
+        run: python3 scripts/benchmark-java-paint.py run --jar base="$RUNNER_TEMP/base.jar" --jar new=build/internal/MultiMini-Linux.jar --out build/paint-bench --full --types
       - name: Publish summary
         if: always()
         run: '[ -f build/paint-bench/results.md ] && cat build/paint-bench/results.md >> "$GITHUB_STEP_SUMMARY" || true'
@@ -39,7 +39,7 @@ jobs:
           import os
           p = 'build/paint-bench/results.md'
           text = open(p).read() if os.path.exists(p) else 'no results'
-          chunks = [text[i:i + 12000] for i in range(0, len(text), 12000)]
+          chunks = [text[i:i + 3500] for i in range(0, len(text), 3500)]
           for n, c in enumerate(chunks):
               print('::notice title=bench-%d::' % n + c.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PY

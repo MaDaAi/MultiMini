@@ -397,8 +397,15 @@ public final class PreviewPanel extends JPanel {
             case VIDEO: fill = new Color(48, 43, 67); break;
             default: fill = new Color(47, 57, 51); break;
         }
-        g.setColor(fill);
-        g.fill(new RoundRectangle2D.Float(bounds.x, bounds.y, bounds.width, bounds.height, 10, 10));
+        // Linux/macOS frames are opaque RGB and cover the whole card, so the anti-aliased
+        // placeholder under them is never visible; filling it costs several ms per frame.
+        boolean frameCoversCard = app.multimin.backend.PlatformSupport.isPortable() && alpha >= 0.999f && source.liveFrame != null
+            && source.liveFrame.getType() == java.awt.image.BufferedImage.TYPE_INT_RGB
+            && (source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME);
+        if (!frameCoversCard) {
+            g.setColor(fill);
+            g.fill(new RoundRectangle2D.Float(bounds.x, bounds.y, bounds.width, bounds.height, 10, 10));
+        }
         if ((source.kind == Source.Kind.DISPLAY || source.kind == Source.Kind.WINDOW || source.kind == Source.Kind.GAME || source.kind == Source.Kind.IMAGE) && source.liveFrame != null) {
             Graphics2D pixels = (Graphics2D) g.create();
             var transform = pixels.getTransform();
@@ -409,6 +416,7 @@ public final class PreviewPanel extends JPanel {
             if (transform.getShearX() == 0 && transform.getShearY() == 0) {
                 pixels.setTransform(new java.awt.geom.AffineTransform());
             } else { px = bounds.x; py = bounds.y; pw = bounds.width; ph = bounds.height; }
+            if (app.multimin.backend.PlatformSupport.isPortable()) pixels.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
             pixels.setRenderingHint(RenderingHints.KEY_INTERPOLATION, nativePixels
                 ? RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
                 : !locked ? RenderingHints.VALUE_INTERPOLATION_BICUBIC : RenderingHints.VALUE_INTERPOLATION_BILINEAR);

@@ -161,7 +161,8 @@ public final class LinuxPaintBench {
         Thread.sleep(500);
         String[] names = {"draw_rgb_native", "draw_argb_native", "draw_argbpre_native", "draw_compatible_native",
             "draw_rgb_scaled_bilinear", "draw_argb_scaled_bilinear", "draw_rgb_scaled_nearest",
-            "upload_rgb_to_volatile", "draw_volatile_scaled_bilinear"};
+            "upload_rgb_to_volatile", "draw_volatile_scaled_bilinear", "fill_aa_roundrect_1280x720", "fill_rect_1280x720",
+            "draw_rgb_scaled_bilinear_aa_hint_on", "fill_aa_roundrect_then_draw_scaled"};
         VolatileImage vol = gc.createCompatibleVolatileImage(w, h, Transparency.TRANSLUCENT);
         vol.validate(gc);
         boolean first = true;
@@ -179,6 +180,10 @@ public final class LinuxPaintBench {
                     case "draw_argb_scaled_bilinear" -> { g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(argb, 0, 0, 1280, 720, null); }
                     case "draw_rgb_scaled_nearest" -> { g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR); g.drawImage(rgb, 0, 0, 1280, 720, null); }
                     case "upload_rgb_to_volatile" -> { Graphics2D u = vol.createGraphics(); u.setComposite(AlphaComposite.Src); u.drawImage(rgb, 0, 0, null); u.dispose(); }
+                    case "fill_aa_roundrect_1280x720" -> { g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON); g.setColor(Color.DARK_GRAY); g.fill(new java.awt.geom.RoundRectangle2D.Float(0, 0, 1280, 720, 10, 10)); }
+                    case "fill_rect_1280x720" -> { g.setColor(Color.DARK_GRAY); g.fillRect(0, 0, 1280, 720); }
+                    case "draw_rgb_scaled_bilinear_aa_hint_on" -> { g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON); g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(rgb, 0, 0, 1280, 720, null); }
+                    case "fill_aa_roundrect_then_draw_scaled" -> { g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON); g.setColor(Color.DARK_GRAY); g.fill(new java.awt.geom.RoundRectangle2D.Float(0, 0, 1280, 720, 10, 10)); g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(rgb, 0, 0, 1280, 720, null); }
                     default -> { g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(vol, 0, 0, 1280, 720, null); }
                 }
                 Toolkit.getDefaultToolkit().sync();

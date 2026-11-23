@@ -44,9 +44,11 @@ def run_one(display, classes, jar, label, pipeline, res, scenario, extra, args):
            'seconds=%s' % args.seconds, 'out=' + out, 'sync=%s' % str(args.sync).lower()]
     env = dict(os.environ, DISPLAY=display)
     try:
-        subprocess.run(cmd, env=env, check=True, timeout=120, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.run(cmd, env=env, check=True, timeout=120, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         with open(out) as f:
             data = json.load(f)
+        if data.get('paints_per_s', 0) < 1:
+            data['stderr'] = (proc.stderr or '')[-900:]
     except Exception as error:  # keep going: report the failure in the table
         detail = getattr(error, 'stderr', '') or ''
         return {'error': str(error)[:200] + ' ' + detail[-400:]}
@@ -108,21 +110,20 @@ def markdown(results, args):
                          + ', '.join('%s=%.2f' % kv for kv in item['micro'].items()) + '\n')
         if 'micro_error' in item:
             lines.append('Micro error: ' + item['micro_error'] + '\n')
-    lines.append('| jar | pipeline | image | res | mode | kind | paints/s | frames/s | EDT busy % | paint ms (p50/p95) | apply ms | read ms | age ms (p50/p95) | JVM CPU % | producer CPU % | Xvfb CPU % | heap MB | RSS MB | GC/s | accel |')
-    lines.append('|' + '---|' * 20)
+    lines.append('jar/pipe/img | res mode/kind | paints/s | EDT% | paint p50/p95 | read | apply | age p50/p95 | JVM% | py% | Xvfb% | heap | RSS | GC/s')
     for r in results:
         if 'micro' in r or 'micro_error' in r:
             continue
         if 'error' in r:
-            lines.append('| error | ' + r['error'].replace('|', '/').replace('\n', ' ') + ' |')
+            lines.append('ERROR ' + r['error'].replace('|', '/').replace('\n', ' ')[:600])
             continue
-        lines.append('| %s | %s | %s | %dx%d | %s | %s | %.1f | %.1f | %.0f | %.2f / %.2f | %.2f | %.2f | %.1f / %.1f | %.0f | %.0f | %.0f | %.0f | %.0f | %.1f | %s |' % (
+        lines.append('%s/%s/%s | %dx%d %s/%s | %.1f | %.0f | %.2f/%.2f | %.2f | %.3f | %.1f/%.1f | %.0f | %.0f | %.0f | %.0f | %.0f | %.1f%s' % (
             r['label'], r['pipeline'], r['image_type'], r['width'], r['height'], r['mode'], r['kind'],
-            r['paints_per_s'], r['distinct_frames_painted_per_s'], r['edt_busy_pct'],
-            r['paint_ms']['p50'], r['paint_ms']['p95'], r['apply_ms']['mean'], r['read_ms']['mean'],
+            r['paints_per_s'], r['edt_busy_pct'],
+            r['paint_ms']['p50'], r['paint_ms']['p95'], r['read_ms']['mean'], r['apply_ms']['mean'],
             r['age_publish_to_paint_ms']['p50'], r['age_publish_to_paint_ms']['p95'], r['jvm_cpu_pct'],
             r['producer_cpu_pct'], r['xvfb_cpu_pct'], r['heap_used_max_mb'], r['rss_peak_mb'], r['gc_per_s'],
-            'y' if r['accelerated_surface'] else 'n'))
+            ('  STDERR: ' + r['stderr'].replace('\n', ' ')) if r.get('stderr') else ''))
     return '\n'.join(lines) + '\n'
 
 
