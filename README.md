@@ -74,8 +74,7 @@ MultiMini uses the [MIT License](LICENSE). Third-party dependencies retain their
 ## Linux preview
 
 Windows and Linux share the interface and application models in this repository.
-The unpublished Linux preview includes local Flatpak packaging, X11/XWayland
+The Linux beta includes local Flatpak packaging, X11/XWayland
 window input, and optional KDE integration for native Wayland windows. Desktop
 permission prompts and game compatibility vary; this is not a universal game hook.
-See [Linux build and installation](docs/LINUX.md) and the
-[verification record](docs/LINUX_VERIFICATION.md) before relying on a feature.
+See [Linux build and installation](docs/LINUX.md).

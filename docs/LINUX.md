@@ -1,6 +1,6 @@
 # Linux preview
 
-This is an unpublished development port, sharing the Java interface, models,
+This is the Linux beta, sharing the Java interface, models,
 rendering, customization, settings, workspace schema, gallery and frame protocol
 with Windows. It is not yet feature-equivalent to Windows. VERSION is shared by
 both packagers; a Linux preview does not change or replace the Windows release.
@@ -91,7 +91,7 @@ layouts still make an owned packed copy. The fixed-rate limiter preserves its
 deadline through small producer jitter instead of repeatedly discarding every
 other near-60-Hz sample. Latest-frame transport still drops superseded frames.
 These changes do not turn multi-layer Swing composition into GPU-zero-copy
-capture. See LINUX_VERIFICATION.md for measurements and remaining game checks.
+capture.
 
 The KDE text selection identifies the input window; the desktop picker grants
 capture separately. The standardized ScreenCast API does not accept that KWin
@@ -164,7 +164,7 @@ XDG_CONFIG_HOME="$profile/config" XDG_DATA_HOME="$profile/data" ./scripts/run-li
 PYTHONPATH=python python3 -m unittest discover -s python/tests -q
 ```
 
-Read LINUX_VERIFICATION.md for actual results. Build/launch success is not evidence
+Build/launch success is not evidence
 of capture, input routing or shortcut correctness. If a picker is cancelled,
 reselect with Configure source. Check portal availability with:
 

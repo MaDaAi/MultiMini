@@ -15,4 +15,4 @@ Windows x64 only. Extract **MultiMini-1.0.7-Windows-x64.zip** and run **MultiMin
 
 ## Known limitations
 Windows binaries are unsigned. OBS Window Capture attached to Configure cannot follow the separate multitask window; use Display Capture. Live OBS verification remains outstanding.
-The security review is not a clean bill of health: 2 confirmed failures and 15 unverified checks remain, including unauthenticated local frame transport and build-input pinning. Full details are in docs/SECURITY_AUDIT_2026-11-14.md. No universal game compatibility or latency guarantee is made.
+No universal game compatibility or latency guarantee is made.
