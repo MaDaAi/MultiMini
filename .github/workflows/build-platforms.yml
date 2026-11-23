@@ -57,6 +57,8 @@ jobs:
           mkdir -p build/checks
           javac --release 25 -cp build/internal/MultiMini-Linux.jar -d build/checks app/src/test/java/app/multimin/ui/AppearancePolicyCheck.java
           java -Djava.awt.headless=true -cp build/checks:build/internal/MultiMini-Linux.jar app.multimin.ui.AppearancePolicyCheck
+          javac --release 25 -cp build/internal/MultiMini-Linux.jar -d build/checks app/src/test/java/app/multimin/ui/UpdateParseCheck.java
+          java -Djava.awt.headless=true -cp build/checks:build/internal/MultiMini-Linux.jar app.multimin.ui.UpdateParseCheck
   linux-benchmark:
     # Manual only: measures the X11 capture pipeline under Xvfb and uploads the results.
     if: github.event_name == 'workflow_dispatch'
