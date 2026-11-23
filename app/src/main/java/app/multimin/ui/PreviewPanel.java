@@ -139,7 +139,7 @@ public final class PreviewPanel extends JPanel {
         if (bottom - top >= bounds.height) { repaint(); return; }
         repaint(bounds.x - 2, top, bounds.width + 4, bottom - top);
     }
-    @Override public void removeNotify() { guideTimer.stop();guideX=guideY=snapX=snapY=-1; if(linuxOverlayFrame!=null){linuxOverlayFrame.flush();linuxOverlayFrame=null;} windowSurfaces.close(); frameTextures.close(); super.removeNotify(); }
+    @Override public void removeNotify() { guideTimer.stop();guideX=guideY=snapX=snapY=-1; if(linuxOverlayFrame!=null){linuxOverlayFrame.flush();linuxOverlayFrame=null;} windowSurfaces.close(); frameTextures.close(); if(stageCache!=null){stageCache.flush();stageCache=null;stageKey="";} super.removeNotify(); }
     public void setLocked(boolean locked) { if(!locked)windowSurfaces.reset(); this.locked = locked; setOpaque(!locked); dragStart = null; resizing = false; setCursor(Cursor.getDefaultCursor()); repaint(); }
     public void refreshNativePresentation() {
         if(!locked || !nativePresentationAllowed)return;
@@ -358,12 +358,7 @@ public final class PreviewPanel extends JPanel {
         canvas = new Rectangle(x, y, width, height);
         windowSurfaces.update(this,view,canvas,locked && nativePresentationAllowed,this::sourceBoundsInPanel);
         if (!locked) {
-            // Configure-mode stage: soft shadow, rounded frame and a faint grid.
-            Theme.shadow(g, x, y, width, height, 10, 14, Color.BLACK, palette.isLight() ? 70 : 150);
-            g.setColor(new Color(9, 10, 13)); g.fill(Theme.round(x, y, width, height, 10));
-            g.setColor(new Color(255, 255, 255, 9));
-            int step = Math.max(18, width / 48);
-            for (int gx = x + step; gx < x + width; gx += step) for (int gy = y + step; gy < y + height; gy += step) g.fillRect(gx, gy, 1, 1);
+            if (!paintCachedStage(g, x, y, width, height)) drawStage(g, x, y, width, height);
         }
         else if (!hasVisibleDisplaySource()) {
             g.setColor(Color.BLACK); g.fillRect(0, 0, getWidth(), getHeight());
@@ -405,6 +400,44 @@ public final class PreviewPanel extends JPanel {
         }
     }
 
+    /** Configure-mode stage: soft shadow, rounded frame and a faint grid. */
+    private void drawStage(Graphics2D g, int x, int y, int width, int height) {
+        Theme.shadow(g, x, y, width, height, 10, 14, Color.BLACK, palette.isLight() ? 70 : 150);
+        g.setColor(new Color(9, 10, 13)); g.fill(Theme.round(x, y, width, height, 10));
+        g.setColor(new Color(255, 255, 255, 9));
+        int step = Math.max(18, width / 48);
+        for (int gx = x + step; gx < x + width; gx += step) for (int gy = y + step; gy < y + height; gy += step) g.fillRect(gx, gy, 1, 1);
+    }
+
+    private java.awt.image.BufferedImage stageCache;
+    private String stageKey = "";
+
+    /**
+     * The stage is fourteen anti-aliased full-size fills, which dominated every configure-mode paint
+     * on X11. It only changes with size, theme and canvas position, so it is rendered once and blitted.
+     * HiDPI and other platforms keep drawing it directly.
+     */
+    private boolean paintCachedStage(Graphics2D g, int x, int y, int width, int height) {
+        if (!app.multimin.backend.PlatformSupport.isLinux() || getWidth() <= 0 || getHeight() <= 0) return false;
+        var transform = g.getTransform();
+        if (transform.getScaleX() != 1.0 || transform.getScaleY() != 1.0 || transform.getShearX() != 0 || transform.getShearY() != 0) return false;
+        int w = getWidth(), h = getHeight();
+        String key = w + "x" + h + "@" + x + "," + y + "," + width + "," + height + "/" + palette.isLight() + "/" + palette.canvas().getRGB();
+        if (stageCache == null || !key.equals(stageKey)) {
+            if (stageCache != null) stageCache.flush();
+            stageCache = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            Graphics2D stage = stageCache.createGraphics();
+            try {
+                stage.setColor(palette.canvas()); stage.fillRect(0, 0, w, h);
+                stage.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                drawStage(stage, x, y, width, height);
+            } finally { stage.dispose(); }
+            stageKey = key;
+        }
+        g.drawImage(stageCache, 0, 0, null);
+        return true;
+    }
+
     private void paintSource(Graphics2D g, Source source, Rectangle bounds, int index) {
         if(source.nativeCompositionActive || (source==linuxDirectSource && !isPaintingForPrint())) {
             frameTextures.release(source);return;
@@ -441,9 +474,9 @@ public final class PreviewPanel extends JPanel {
             if (app.multimin.backend.PlatformSupport.isPortable()) pixels.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
             pixels.setRenderingHint(RenderingHints.KEY_INTERPOLATION, nativePixels
                 ? RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
-                : !locked ? RenderingHints.VALUE_INTERPOLATION_BICUBIC : RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                : !locked && !app.multimin.backend.PlatformSupport.isLinux() ? RenderingHints.VALUE_INTERPOLATION_BICUBIC : RenderingHints.VALUE_INTERPOLATION_BILINEAR);
             Image scaled = !nativePixels && !locked ? frameTextures.scaledImage(source,pw,ph) : null;
-            pixels.drawImage(scaled != null ? scaled : locked && app.multimin.backend.PlatformSupport.isPortable()
+            pixels.drawImage(scaled != null ? scaled : (locked && app.multimin.backend.PlatformSupport.isPortable() || app.multimin.backend.PlatformSupport.isLinux())
                 ? source.liveFrame : frameTextures.imageFor(source, getGraphicsConfiguration()), px, py, pw, ph, null);
             pixels.dispose();
         } else if (source.kind == Source.Kind.DISPLAY) {

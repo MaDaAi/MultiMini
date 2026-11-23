@@ -125,6 +125,44 @@ public final class LinuxPaintBench {
         }
     }
 
+    static volatile Thread edtThread;
+    static final Map<String, Integer> inclusive = new HashMap<>(), self = new HashMap<>();
+    static int samples;
+
+    /** Poor man's profiler: samples the EDT stack while recording to find where a paint pass spends its time. */
+    static Thread startSampler() {
+        Thread thread = new Thread(() -> {
+            while (!stopping) {
+                try { Thread.sleep(1); } catch (InterruptedException e) { return; }
+                Thread edt = edtThread;
+                if (!recording || edt == null) continue;
+                StackTraceElement[] stack = edt.getStackTrace();
+                if (stack.length == 0) continue;
+                samples++;
+                Set<String> seen = new HashSet<>();
+                for (int i = 0; i < stack.length; i++) {
+                    String cls = stack[i].getClassName();
+                    String name = cls.substring(cls.lastIndexOf('.') + 1) + "." + stack[i].getMethodName();
+                    if (seen.add(name)) inclusive.merge(name, 1, Integer::sum);
+                    if (i == 0) self.merge(name, 1, Integer::sum);
+                }
+            }
+        }, "bench-sampler");
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+    static String top(Map<String, Integer> counts, int limit) {
+        List<Map.Entry<String, Integer>> entries = new ArrayList<>(counts.entrySet());
+        entries.sort((a, b) -> b.getValue() - a.getValue());
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < Math.min(limit, entries.size()); i++) {
+            if (i > 0) out.append(',');
+            out.append(String.format(Locale.ROOT, "\"%s=%.0f%%\"", entries.get(i).getKey(), 100.0 * entries.get(i).getValue() / Math.max(1, samples)));
+        }
+        return out.append(']').toString();
+    }
+
     static double[] stats(List<Double> list) {
         List<Double> copy;
         synchronized (list) { copy = new ArrayList<>(list); }
@@ -179,7 +217,8 @@ public final class LinuxPaintBench {
             "draw_rgb_scaled_bilinear", "draw_argb_scaled_bilinear", "draw_rgb_scaled_nearest",
             "upload_rgb_to_volatile", "draw_volatile_scaled_bilinear", "fill_aa_roundrect_1280x720", "fill_rect_1280x720",
             "draw_rgb_scaled_bilinear_aa_hint_on", "fill_aa_roundrect_then_draw_scaled",
-            "draw_rgb_native_clip_quarter_height", "draw_rgb_native_clip_tenth_height", "cpu_downscale_nearest_3_4_then_draw", "arrays_mismatch_identical_frames"};
+            "draw_rgb_native_clip_quarter_height", "draw_rgb_native_clip_tenth_height", "cpu_downscale_nearest_3_4_then_draw", "arrays_mismatch_identical_frames",
+            "draw_rgb_scaled_bicubic", "draw_volatile_scaled_bicubic", "theme_shadow_14_layers_1500x850", "clip_round_then_draw_rgb_scaled_bilinear"};
         VolatileImage vol = gc.createCompatibleVolatileImage(w, h, Transparency.TRANSLUCENT);
         vol.validate(gc);
         boolean first = true;
@@ -209,6 +248,10 @@ public final class LinuxPaintBench {
                         for (int y = 0; y < th; y++) { int row = (y * 4 / 3) * w; for (int x = 0; x < tw; x++) dst[y * tw + x] = source[row + x * 4 / 3]; }
                         g.drawImage(shrunk, 0, 0, null);
                     }
+                    case "draw_rgb_scaled_bicubic" -> { g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC); g.drawImage(rgb, 0, 0, 1280, 720, null); }
+                    case "draw_volatile_scaled_bicubic" -> { g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC); g.drawImage(vol, 0, 0, 1280, 720, null); }
+                    case "theme_shadow_14_layers_1500x850" -> { g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON); Theme.shadow(g, 20, 20, 1240, 680, 10, 14, Color.BLACK, 150); }
+                    case "clip_round_then_draw_rgb_scaled_bilinear" -> { g.clip(Theme.round(0, 0, 1280, 720, 10)); g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(rgb, 0, 0, 1280, 720, null); }
                     case "arrays_mismatch_identical_frames" -> { Arrays.mismatch(source, 0, source.length, source, 0, source.length); }
                     default -> { g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(vol, 0, 0, 1280, 720, null); }
                 }
@@ -265,6 +308,7 @@ public final class LinuxPaintBench {
         JFrame[] frame = new JFrame[1];
         int panelW = locked ? 1920 : 1600, panelH = locked ? 1080 : 900;
         SwingUtilities.invokeAndWait(() -> {
+            edtThread = Thread.currentThread();
             preview = new PreviewPanel(new Palette(), view);
             RepaintManager.setCurrentManager(new TimedRepaintManager(sync));
             frame[0] = new JFrame("bench");
@@ -286,6 +330,7 @@ public final class LinuxPaintBench {
         }, "bench-stdout");
         stdout.setDaemon(true); stdout.start();
 
+        if (Boolean.parseBoolean(arg.getOrDefault("profile", "false"))) startSampler();
         Thread.sleep((long) (warmup * 1000));
         GarbageCollectorMXBean[] gcs = ManagementFactory.getGarbageCollectorMXBeans().toArray(new GarbageCollectorMXBean[0]);
         long gcCount0 = 0, gcTime0 = 0;
@@ -325,7 +370,8 @@ public final class LinuxPaintBench {
             maxHeap / 1048576.0, statusKb("VmRSS") / 1024.0, statusKb("VmHWM") / 1024.0, gcCount - gcCount0, gcTime - gcTime0, (gcCount - gcCount0) / wall,
             accelerated)
             + js("read_ms", stats(readMs)) + "," + js("apply_ms", stats(applyMs)) + "," + js("paint_ms", stats(paintMs)) + ","
-            + js("age_publish_to_paint_ms", stats(ageMs)) + "," + js("read_age_ms", stats(readAgeMs)) + "}";
+            + js("age_publish_to_paint_ms", stats(ageMs)) + "," + js("read_age_ms", stats(readAgeMs))
+            + (samples > 0 ? ",\"profile\":{\"samples\":" + samples + ",\"inclusive\":" + top(inclusive, 26) + ",\"self\":" + top(self, 14) + "}" : "") + "}";
         String out = arg.get("out");
         if (out != null) Files.writeString(Path.of(out), json);
         System.out.println(json);
