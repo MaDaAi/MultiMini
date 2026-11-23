@@ -14,7 +14,36 @@ ROOT = "/org/freedesktop/portal/desktop"
 PREFIX = "org.freedesktop.portal."
 
 
-def packed_bgra(data, width, height, stride, offset=0):
+_gst_video = None
+
+
+def video_module():
+    """GstVideo, imported once (it used to be imported inside every frame callback)."""
+    global _gst_video
+    if _gst_video is None:
+        import gi
+        gi.require_version("GstVideo", "1.0")
+        from gi.repository import GstVideo
+        _gst_video = GstVideo
+    return _gst_video
+
+
+class FrameRing:
+    """A few reused frame buffers, so each frame is a copy, not a fresh allocation.
+    A published buffer is rewritten only `size` frames later."""
+    def __init__(self, size=3):
+        self.size, self.buffers, self.index = size, [], 0
+
+    def take(self, length):
+        if not self.buffers or len(self.buffers[0]) != length:
+            self.buffers = [bytearray(length) for _ in range(self.size)]
+            self.index = 0
+        buffer = self.buffers[self.index]
+        self.index = (self.index + 1) % self.size
+        return buffer
+
+
+def packed_bgra(data, width, height, stride, offset=0, ring=None):
     """Keep packed immutable buffers intact; copy only padded/offset layouts."""
     row = width * 4
     if width <= 0 or height <= 0 or width > 16384 or height > 16384 or row * height > 256 * 1024 * 1024:
@@ -24,8 +53,28 @@ def packed_bgra(data, width, height, stride, offset=0):
     if stride == row:
         if isinstance(data, bytes) and offset == 0 and len(data) == row * height:
             return data
+        if ring is not None:
+            buffer = ring.take(row * height)
+            buffer[:] = memoryview(data)[offset:offset + row * height]
+            return buffer
         return bytes(data[offset:offset + row * height])
     return b"".join(data[offset + y * stride:offset + y * stride + row] for y in range(height))
+
+
+STANDARD_RATES = (360, 240, 165, 144, 120, 100, 90, 75, 60)
+
+
+def framerate_caps():
+    """Ask the compositor for its fastest stream.
+
+    Without a request KWin and others negotiate max-framerate=60/1 and drop
+    every other frame on a 144 Hz display. Each caps structure asks for at
+    least one standard rate; negotiation takes the first the compositor can
+    honour and fixes it at that rate. The last, plain structure keeps the
+    compositor's own default when it offers none of them.
+    """
+    ranges = "; ".join(f"video/x-raw,max-framerate=(fraction)[{rate}/1,1000/1]" for rate in STANDARD_RATES)
+    return f"{ranges}; video/x-raw"
 
 
 class RateLimiter:
@@ -188,28 +237,34 @@ class PipeWireCapture:
         Gst = portal.Gst
         threads = max(1, min(4, os.cpu_count() or 1))
         self.pipeline = Gst.parse_launch(
-            f"pipewiresrc fd={fd} path={int(node)} do-timestamp=true ! "
-            f"videoconvert name=convert n-threads={threads} ! video/x-raw,format=BGRA ! "
+            f"pipewiresrc fd={fd} path={int(node)} do-timestamp=true ! capsfilter name=rate ! "
+            # BGRx is accepted as-is (the alpha byte is ignored on Linux), so
+            # compositors that hand out BGRx/BGRA skip the per-frame conversion.
+            f"videoconvert name=convert n-threads={threads} ! video/x-raw,format={{BGRA,BGRx}} ! "
             "appsink name=frames emit-signals=true max-buffers=1 drop=true sync=false")
+        self.pipeline.get_by_name("rate").set_property("caps", Gst.Caps.from_string(framerate_caps()))
         self.sink = self.pipeline.get_by_name("frames")
         # Drop surplus frames before colour conversion, mapping and copying.
         convert_pad = self.pipeline.get_by_name("convert").get_static_pad("sink")
         def probe(_pad, _info):
             return Gst.PadProbeReturn.OK if self.limiter.admit() else Gst.PadProbeReturn.DROP
         convert_pad.add_probe(Gst.PadProbeType.BUFFER, probe)
+        GstVideo = video_module()
+        ring = FrameRing()
+        layout = [None, 0, 0, None]  # caps object, width, height, VideoInfo; rebuilt only when caps change
         def sample(sink):
             frame = sink.emit("pull-sample")
             if frame is None:
                 return Gst.FlowReturn.EOS
-            caps = frame.get_caps().get_structure(0)
-            w, h = caps.get_value("width"), caps.get_value("height")
+            sample_caps = frame.get_caps()
+            if layout[0] is None or not sample_caps.is_equal(layout[0]):
+                caps = sample_caps.get_structure(0)
+                layout[:] = [sample_caps, caps.get_value("width"), caps.get_value("height"),
+                             GstVideo.VideoInfo.new_from_caps(sample_caps)]
+            _caps, w, h, info = layout
             buffer = frame.get_buffer()
             # BGRA rows have a multiple-of-four stride. Inspect actual video
             # metadata as PipeWire can still provide wider padded rows.
-            import gi
-            gi.require_version("GstVideo", "1.0")
-            from gi.repository import GstVideo
-            info = GstVideo.VideoInfo.new_from_caps(frame.get_caps())
             meta = GstVideo.buffer_get_video_meta(buffer)
             stride = meta.stride[0] if meta else info.stride[0]
             offset = meta.offset[0] if meta else info.offset[0]
@@ -217,7 +272,7 @@ class PipeWireCapture:
             if ok:
                 try:
                     data = mapping.data
-                    pixels = packed_bgra(data, w, h, stride, offset)
+                    pixels = packed_bgra(data, w, h, stride, offset, ring)
                     on_frame(w, h, pixels)
                 finally:
                     buffer.unmap(mapping)

@@ -925,7 +925,8 @@ public final class MainWindow extends JFrame {
             source.nativeWindowHandle = windowTarget.hwnd;
             source.windowProcess = windowTarget.process;
             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".bmp").toString();
-            backend.registerWindowCapture(source.name, target.trim(), source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
+            source.portalRestoreToken = takeParkedPortalToken(source);
+            backend.registerWindowCapture(source.name, target.trim(), source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor, source.portalRestoreToken);
             source.inputTarget = target.trim();
         }
         if (kind == Source.Kind.IMAGE) { source.liveFrame = pendingImage; source.imagePath = pendingImagePath; pendingImageName = null; pendingImage = null; }
@@ -1015,8 +1016,6 @@ public final class MainWindow extends JFrame {
         preferences.putBoolean("captureFpsChoiceV2", true);
         lastAppliedCaptureFps = effectiveCaptureFps();
         windowFrameTimer.setTargetFps(backend.hasFrameNotifications() ? Math.min(30, lastAppliedCaptureFps) : lastAppliedCaptureFps);
-        if (app.multimin.backend.PlatformSupport.isPortable())
-            new app.multimin.backend.LinuxOverlayInput(backend, preview, () -> multitask);
         GraphicsDevice[] screens = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
         for (int i = 0; i < displayCaptures.size(); i++) {
             int refresh = i < screens.length ? screens[i].getDisplayMode().getRefreshRate() : 0;
@@ -1488,11 +1487,34 @@ public final class MainWindow extends JFrame {
     private void removeSelected() {
         int index = sourceList.getSelectedIndex(); if (index < 0) return;
         Source source = activeView.sources.get(index);
+        parkPortalToken(source);
         if (source.captureFramePath != null) {
             if (source.nativeGameTest) backend.stopGameCapture(source.captureFramePath);
             else backend.removeWindowCapture(source.captureFramePath);
         }
         activeView.sources.remove(index); activeView.controlSource = Math.min(activeView.controlSource, activeView.sources.size() - 1); sourceList.setSelectedIndex(Math.min(index, activeView.sources.size() - 1)); preview.repaint();
+    }
+
+    /**
+     * Wayland desktop-sharing grants are single-use restore tokens. When a source
+     * is removed, keep its unused token for that app, so adding the same app again
+     * restores the grant instead of showing the desktop picker again.
+     */
+    private static String portalTokenKey(Source source) {
+        if (source.windowProcess == null || source.windowProcess.isBlank()) return null;
+        return "portalToken." + source.windowProcess.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+    private void parkPortalToken(Source source) {
+        String key = portalTokenKey(source);
+        if (!app.multimin.backend.PlatformSupport.isLinux() || key == null || source.portalRestoreToken == null || source.portalRestoreToken.isBlank()) return;
+        preferences.putString(key, source.portalRestoreToken);
+    }
+    private String takeParkedPortalToken(Source source) {
+        String key = portalTokenKey(source);
+        if (!app.multimin.backend.PlatformSupport.isLinux() || key == null || source.nativeWindowHandle < (1L << 48)) return "";
+        String token = preferences.getString(key, "");
+        if (!token.isEmpty()) preferences.putString(key, "");
+        return token;
     }
 
     private void toggleSelectedVisibility() {
@@ -1844,6 +1866,7 @@ public final class MainWindow extends JFrame {
             }
             SwingUtilities.invokeLater(() -> {
                 try {
+                    List<Source> changedSources = new ArrayList<>(); List<BufferedImage> previousFrames = new ArrayList<>();
                     for (Map.Entry<Source, WindowFrameReader.Frame> entry : frames.entrySet()) {
                         Source source = entry.getKey();
                         if(!java.util.Objects.equals(identifiers.get(source),source.captureFramePath))continue;
@@ -1858,6 +1881,7 @@ public final class MainWindow extends JFrame {
                         }
                         BufferedImage previous = source.liveFrame;
                         source.liveFrame = frame.image;
+                        changedSources.add(source); previousFrames.add(previous);
                         if (source.kind == Source.Kind.DISPLAY && frame.backend.contains("memory")) source.nativeDisplayFrames = true;
                         source.standbyFrame = frame.backend.contains("memory") ? previous : null;
                         source.activeCaptureBackend = source.nativeGameTest
@@ -1869,7 +1893,11 @@ public final class MainWindow extends JFrame {
                         source.captureLatencyMillis = frame.latencyMillis; source.capturedFrames++;
                         source.producedNanos = frame.producedNanos;
                     }
-                    if (!frames.isEmpty() && !preview.hasLinuxDirectSource()) preview.repaint();
+                    if (!frames.isEmpty() && !preview.hasLinuxDirectSource()) {
+                        // Partial repaints need the previous image, which the next scan reuses as its buffer.
+                        for (int i = 0; i < changedSources.size(); i++) preview.sourceFrameChanged(changedSources.get(i), previousFrames.get(i));
+                        if (changedSources.isEmpty()) preview.repaint();
+                    }
                     Source pending = targetSizePending;
                     if (pending != null && multitask && (pending.liveFrame != null || pending.nativeSourceWidth > 0)) {
                         int index = activeView.sources.indexOf(pending);

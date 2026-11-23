@@ -217,6 +217,63 @@ class X11:
         self.display.close()
 
 
+PUBLISH_SPACING = 1.003
+
+
+def hold_for_publish(last_publish, period, now, spacing=PUBLISH_SPACING):
+    """Seconds to wait so two frames are never published closer than `spacing` periods.
+
+    The service keeps a per-source deadline that moves a full period ahead for
+    every frame it accepts, and drops a frame that arrives more than 2% of a
+    period before it. A capture thread paced from grab *starts* still publishes
+    a little early whenever one grab is faster than the one before it (Xwayland
+    readbacks vary by a millisecond or more) and frames closer than a period
+    push that deadline ahead until one is dropped, costing a whole period each
+    time. Holding the early ones back for a fraction of a millisecond avoids it.
+    """
+    return max(0.0, last_publish + period * spacing - now)
+
+
+class DamageProbe:
+    """Decides when a window that reports no damage still needs a look.
+
+    XDamage normally says when pixels changed. A client that presents without
+    damage (some Xwayland/DRI3 flip paths) would otherwise freeze, or only be
+    seen at the 250 ms wake-up. After a quiet spell we grab anyway and compare
+    with the previous grab: identical means the window really is idle (back off
+    to one look per second at most); different with no damage queued means the
+    damage reports cannot be trusted, and the capture falls back to timer pacing.
+    """
+
+    def __init__(self, first=0.1, longest=1.0, limit=4):
+        self.first, self.longest, self.limit = first, longest, limit
+        self.delay = first
+        self.quiet_since = None  # None: nothing seen yet, look right away
+        self.surprises = 0
+        self.trusted = True
+
+    def damaged(self, now):
+        self.delay = self.first
+        self.quiet_since = now
+
+    def due_in(self, now):
+        if self.quiet_since is None:
+            return 0.0
+        return max(0.0, self.quiet_since + self.delay - now)
+
+    def probed(self, now, changed, explained):
+        """Record a probing grab. `explained`: damage was queued or the first frame/size changed."""
+        self.quiet_since = now
+        if not changed:
+            self.delay = min(self.longest, self.delay * 2)
+            return
+        self.delay = self.first
+        if not explained:
+            self.surprises += 1
+            if self.surprises >= self.limit:
+                self.trusted = False
+
+
 class X11Capture:
     """Read the selected X11 drawable; prefer its compositor backing pixmap.
 
@@ -236,46 +293,111 @@ class X11Capture:
         d = display.Display()
         win = d.create_resource_object('window', int(xid))
         last_error = 0
-        last_grab = 0.0
+        next_due = 0.0
+        grab_failures = 0
         grabber = None
+        last_publish = 0.0
+        grab_cost = 0.0  # smoothed duration of one grab, to start the next one early enough
+        overshoot = 0.0  # smoothed lateness of grab starts (timer slack), likewise compensated
+        jitter = 0.0  # smoothed spread of both; starting this much early keeps the cap reachable
+        last_grab = None
+        last_size = (0, 0)
+        last_check = 0.0
+        viewable = True
+        probe = DamageProbe()
         try:
             from .linux_xshm import XShmGrabber
             grabber = XShmGrabber(int(xid))
         except Exception:
             grabber = None  # Python Xlib path below remains the fallback.
+
+        def period_now():
+            return 1/max(1,min(1000,fps()))
+
+        def emit(w, h, pixels):
+            nonlocal last_publish
+            wait = hold_for_publish(last_publish, period_now(), time.monotonic())
+            if wait > 0 and self.stop.wait(wait):
+                return  # closing: do not push one more early frame
+            last_publish = time.monotonic()
+            publish(w, h, pixels)  # Java draws these as opaque RGB.
+
         try:
             win.change_attributes(event_mask=X.StructureNotifyMask)
             d.sync()
             while not self.stop.is_set():
                 started = time.monotonic()
                 try:
-                    while d.pending_events():
-                        item = d.next_event()
-                        if item.type == X.DestroyNotify:
-                            error('Selected X11 window closed; reselect source')
-                            return
-                    if win.get_attributes().map_state != X.IsViewable:
+                    # Window state changes slowly; checking it costs two Xlib
+                    # round trips, so look every 100 ms rather than every frame.
+                    if started-last_check >= .1:
+                        last_check = started
+                        while d.pending_events():
+                            item = d.next_event()
+                            if item.type == X.DestroyNotify:
+                                error('Selected X11 window closed; reselect source')
+                                return
+                        viewable = win.get_attributes().map_state == X.IsViewable
+                    if not viewable:
+                        last_check = 0.0
                         self.stop.wait(.1)
                         continue
                     if grabber is not None:
+                        driven = grabber.event_driven and probe.trusted
                         try:
-                            if grabber.event_driven:
+                            probing = False
+                            if driven:
                                 # Like WGC's frame-arrived event: grab right after the
                                 # game presents, never on a timer that drifts against it.
                                 # 250 ms timeout keeps close/unmap detection responsive.
-                                if not grabber.wait_for_change(.25):
+                                if grabber.wait_for_change(min(.25, max(.005, probe.due_in(time.monotonic())))):
+                                    probe.damaged(time.monotonic())
+                                elif probe.due_in(time.monotonic()) > 0:
                                     continue
-                                period = 1/max(1,min(1000,fps()))
-                                wait = period-(time.monotonic()-last_grab)
+                                else:
+                                    probing = True  # quiet for a while: look, in case damage is not reported
+                                wait = next_due-time.monotonic()
                                 if wait > 0:
                                     self.stop.wait(wait)  # FPS cap; then grab the newest pixels
+                            grab_started=time.monotonic()
+                            late = min(max(grab_started-next_due,0.0),period_now()*.25) if next_due else 0.0
+                            spread = abs(late-overshoot)
+                            overshoot = overshoot*.9+late*.1
                             w,h,pixels=grabber.grab()
-                            last_grab=time.monotonic()
-                            publish(w,h,pixels)  # Java draws these as opaque RGB.
-                            if not grabber.event_driven:
-                                self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
+                            cost = time.monotonic()-grab_started
+                            spread += abs(cost-grab_cost) if grab_cost else 0.0
+                            grab_cost = cost if not grab_cost else grab_cost*.9+cost*.1
+                            jitter = jitter*.9+spread*.1
+                            grab_failures = 0
+                            if probing:
+                                first = last_grab is None
+                                resized = last_size != (w,h)
+                                queued = grabber.wait_for_change(0)  # damage that arrived meanwhile explains a change
+                                changed = first or resized or pixels != last_grab
+                                probe.probed(time.monotonic(), changed, first or resized or queued)
+                                last_grab, last_size = pixels, (w,h)
+                                if not changed:
+                                    continue  # idle window: nothing new to show
+                            else:
+                                last_grab, last_size = pixels, (w,h)
+                            emit(w,h,pixels)
+                            # Pace from the publish, not the grab start: the next frame is
+                            # one period after this one, minus what a grab costs, so a slow
+                            # grab never makes later frames pile up behind a held publish
+                            # and the cap is not lowered by the grab's own duration.
+                            # Early frames are held back by emit(), late ones are not
+                            # recovered, so aim a little early: the cap stays reachable.
+                            next_due = last_publish+period_now()*PUBLISH_SPACING-grab_cost-overshoot-min(jitter,period_now()*.1)
+                            if not driven:
+                                self.stop.wait(max(.001,next_due-time.monotonic()))
                             continue
                         except Exception:
+                            # A single failure (resize, unmap race, stray X error)
+                            # must not demote the source to the slow path for good.
+                            grab_failures += 1
+                            if grab_failures < 5:
+                                self.stop.wait(.01)
+                                continue
                             grabber.close()
                             grabber = None
                     geom = win.get_geometry()
@@ -308,20 +430,16 @@ class X11Capture:
                     fmt=next(f for f in d.display.info.pixmap_formats if f.depth==image.depth)
                     if fmt.bits_per_pixel!=32 or d.display.info.image_byte_order!=X.LSBFirst:
                         raise RuntimeError('X11 preview currently requires a 32-bit little-endian pixel format')
-                    data=bytearray(image.data)
+                    data=image.data
                     if len(data)!=w*h*4:
                         raise RuntimeError('Unexpected X11 image stride')
-                    # Most X11 windows are depth24 in a 32-bit storage format.
-                    # Their unused alpha byte is zero, not transparent content.
-                    # Force opaque for every depth: GL/Vulkan windows on depth-32
-                    # visuals often leave alpha at zero, which rendered as black.
-                    data[3::4]=b'\xff'*(w*h)
-                    publish(w,h,bytes(data))
+                    # Alpha is ignored: Java draws Linux frames as opaque RGB.
+                    emit(w,h,data)
                 except Exception as exc:
                     if time.monotonic()-last_error>5:
                         error(f'X11 capture failed: {exc}')
                         last_error=time.monotonic()
-                self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
+                self.stop.wait(max(.001,period_now()-(time.monotonic()-started)))
         finally:
             if grabber is not None:
                 grabber.close()

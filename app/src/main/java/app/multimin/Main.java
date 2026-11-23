@@ -9,6 +9,7 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) {
+        if (args.length == 1 && "--check-updates".equals(args[0])) System.exit(app.multimin.ui.GithubUpdater.probe());
         java.util.Properties features = new java.util.Properties();
         try (var input = Main.class.getResourceAsStream("/build.properties")) {
             if (input != null) features.load(input);

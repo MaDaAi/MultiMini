@@ -23,6 +23,9 @@ public final class WindowFrameReader implements AutoCloseable {
         }
     }
 
+    /** -Dmultimin.frameImageType=1|2|3 (RGB, ARGB, ARGB_PRE) overrides the platform default for measurements. */
+    private static final int IMAGE_TYPE = Integer.getInteger("multimin.frameImageType",
+        PlatformSupport.isPortable() ? BufferedImage.TYPE_INT_RGB : BufferedImage.TYPE_INT_ARGB);
     private Socket socket;
     private DataInputStream input;
     private DataOutputStream output;
@@ -110,7 +113,7 @@ public final class WindowFrameReader implements AutoCloseable {
             // Linux/macOS frames are opaque content: an RGB image ignores the alpha
             // byte that many GL/Vulkan games leave at zero (which drew as black),
             // and opaque images draw faster than ARGB on X11/XRender.
-            int imageType = PlatformSupport.isPortable() ? BufferedImage.TYPE_INT_RGB : BufferedImage.TYPE_INT_ARGB;
+            int imageType = IMAGE_TYPE;
             BufferedImage image = reusable != null && reusable.getWidth() == width && reusable.getHeight() == height
                 && reusable.getType() == imageType
                 ? reusable : new BufferedImage(width, height, imageType);

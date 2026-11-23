@@ -165,6 +165,12 @@ class XShmGrabber:
         self.image = None
         self.info = XShmSegmentInfo()
         self.size = (0, 0)
+        # Reused frame buffers. Allocating a fresh multi-megabyte bytes object
+        # per frame cost an mmap, thousands of page faults and an munmap each
+        # time. A published buffer is rewritten only RING_SIZE frames later,
+        # long after the frame stream has copied it out.
+        self._ring: list[tuple[bytearray, object]] = []
+        self._ring_index = 0
         self.damage = 0
         self.damage_event = -1
         try:
@@ -283,26 +289,53 @@ class XShmGrabber:
                 drawable = pixmap
                 offset = border.value
         try:
+            # XShmGetImage is a round trip: its reply arrives after every error
+            # for the earlier requests (NameWindowPixmap), so the error counter
+            # is current when it returns and no XSync is needed.
             before = _error_counter[0]
             ok = self.xext.XShmGetImage(self.display, drawable, self.image, offset, offset, ALL_PLANES)
-            self.x11.XSync(self.display, 0)
             if (not ok or _error_counter[0] != before) and pixmap:
                 # The backing pixmap may not include a border offset; retry at origin.
                 before = _error_counter[0]
                 ok = self.xext.XShmGetImage(self.display, drawable, self.image, 0, 0, ALL_PLANES)
-                self.x11.XSync(self.display, 0)
+            if (not ok or _error_counter[0] != before) and pixmap:
+                # Not redirected (no compositor): there is no backing pixmap, so
+                # read the window itself, and stop naming pixmaps for it.
+                before = _error_counter[0]
+                ok = self.xext.XShmGetImage(self.display, self.xid, self.image, 0, 0, ALL_PLANES)
+                if ok and _error_counter[0] == before:
+                    self.composite = False
             if not ok or _error_counter[0] != before:
                 raise XShmUnavailable("XShmGetImage failed")
         finally:
             if pixmap:
                 self.x11.XFreePixmap(self.display, pixmap)
+                if not self.composite:
+                    # The name was bogus (window not redirected); flush the
+                    # BadPixmap from freeing it now, or the next grab's error
+                    # check would see it and reject a good frame.
+                    self.x11.XSync(self.display, 0)
         prefix = XImagePrefix.from_address(self.image)
         row = width * 4
         if prefix.bytes_per_line == row:
-            return width, height, ctypes.string_at(self.info.shmaddr, row * height)
+            return width, height, self._copy_out(row * height)
         raw = ctypes.string_at(self.info.shmaddr, prefix.bytes_per_line * height)
         stride = prefix.bytes_per_line
         return width, height, b"".join(raw[y * stride:y * stride + row] for y in range(height))
+
+    RING_SIZE = 3
+
+    def _copy_out(self, size: int) -> bytearray:
+        if not self._ring or len(self._ring[0][0]) != size:
+            self._ring = []
+            for _ in range(self.RING_SIZE):
+                buffer = bytearray(size)
+                self._ring.append((buffer, (ctypes.c_char * size).from_buffer(buffer)))
+            self._ring_index = 0
+        buffer, view = self._ring[self._ring_index]
+        self._ring_index = (self._ring_index + 1) % self.RING_SIZE
+        ctypes.memmove(view, self.info.shmaddr, size)
+        return buffer
 
     def _release_image(self):
         if self.image:
