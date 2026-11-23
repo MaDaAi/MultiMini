@@ -925,7 +925,8 @@ public final class MainWindow extends JFrame {
             source.nativeWindowHandle = windowTarget.hwnd;
             source.windowProcess = windowTarget.process;
             source.captureFramePath = windowFramesDirectory.resolve(java.util.UUID.randomUUID() + ".bmp").toString();
-            backend.registerWindowCapture(source.name, target.trim(), source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor);
+            source.portalRestoreToken = takeParkedPortalToken(source);
+            backend.registerWindowCapture(source.name, target.trim(), source.captureFramePath, source.nativeWindowHandle, source.captureMethod, source.captureCursor, source.portalRestoreToken);
             source.inputTarget = target.trim();
         }
         if (kind == Source.Kind.IMAGE) { source.liveFrame = pendingImage; source.imagePath = pendingImagePath; pendingImageName = null; pendingImage = null; }
@@ -1486,11 +1487,34 @@ public final class MainWindow extends JFrame {
     private void removeSelected() {
         int index = sourceList.getSelectedIndex(); if (index < 0) return;
         Source source = activeView.sources.get(index);
+        parkPortalToken(source);
         if (source.captureFramePath != null) {
             if (source.nativeGameTest) backend.stopGameCapture(source.captureFramePath);
             else backend.removeWindowCapture(source.captureFramePath);
         }
         activeView.sources.remove(index); activeView.controlSource = Math.min(activeView.controlSource, activeView.sources.size() - 1); sourceList.setSelectedIndex(Math.min(index, activeView.sources.size() - 1)); preview.repaint();
+    }
+
+    /**
+     * Wayland desktop-sharing grants are single-use restore tokens. When a source
+     * is removed, keep its unused token for that app, so adding the same app again
+     * restores the grant instead of showing the desktop picker again.
+     */
+    private static String portalTokenKey(Source source) {
+        if (source.windowProcess == null || source.windowProcess.isBlank()) return null;
+        return "portalToken." + source.windowProcess.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+    private void parkPortalToken(Source source) {
+        String key = portalTokenKey(source);
+        if (!app.multimin.backend.PlatformSupport.isLinux() || key == null || source.portalRestoreToken == null || source.portalRestoreToken.isBlank()) return;
+        preferences.putString(key, source.portalRestoreToken);
+    }
+    private String takeParkedPortalToken(Source source) {
+        String key = portalTokenKey(source);
+        if (!app.multimin.backend.PlatformSupport.isLinux() || key == null || source.nativeWindowHandle < (1L << 48)) return "";
+        String token = preferences.getString(key, "");
+        if (!token.isEmpty()) preferences.putString(key, "");
+        return token;
     }
 
     private void toggleSelectedVisibility() {

@@ -74,7 +74,7 @@ class X11Hotkeys:
             deferred=None
             while not self.stop.is_set():
                 if deferred is None and not d.pending_events():
-                    select.select([d.fileno()],[],[],.05)
+                    select.select([d.fileno()],[],[],.25)
                 while deferred is not None or d.pending_events():
                     if deferred is not None:
                         event=deferred
