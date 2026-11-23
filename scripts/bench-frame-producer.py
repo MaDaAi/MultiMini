@@ -41,8 +41,8 @@ def notify():
 
 
 stream = FrameStream(notify, coalesce_notifications=True)
-stream.publish(a.id, w, h, pool[0])
 print(json.dumps({'event': 'ready', 'port': stream.port}), flush=True)
+stream.publish(a.id, w, h, pool[0])
 
 period = 1.0 / a.fps
 deadline = time.monotonic()
