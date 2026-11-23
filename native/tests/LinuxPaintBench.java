@@ -219,7 +219,7 @@ public final class LinuxPaintBench {
         BufferedReader lines = new BufferedReader(new InputStreamReader(producer.getInputStream(), StandardCharsets.UTF_8));
         String first = lines.readLine();
         if (first == null || !first.contains("\"ready\"")) { System.err.println("producer failed: " + first); System.exit(2); }
-        port = Integer.parseInt(first.replaceAll(".*\"port\":(\\d+).*", "$1"));
+        port = Integer.parseInt(first.replaceAll(".*\"port\":\\s*(\\d+).*", "$1"));
 
         reader = new WindowFrameReader();
         worker = Executors.newSingleThreadExecutor(t -> { Thread th = new Thread(t, "bench-reader"); th.setDaemon(true); return th; });
