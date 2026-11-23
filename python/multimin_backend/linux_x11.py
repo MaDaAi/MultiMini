@@ -217,18 +217,19 @@ class X11:
         self.display.close()
 
 
-PUBLISH_SPACING = 0.99
+PUBLISH_SPACING = 1.003
 
 
 def hold_for_publish(last_publish, period, now, spacing=PUBLISH_SPACING):
     """Seconds to wait so two frames are never published closer than `spacing` periods.
 
-    The service drops any frame that arrives more than 2% of a period before the
-    previous one's deadline. A capture thread paced from grab *starts* still
-    publishes a little early whenever one grab is faster than the one before it
-    (Xwayland readbacks vary by a millisecond or more), and every such frame
-    cost a whole period. Holding the early ones back for a fraction of a
-    millisecond keeps them.
+    The service keeps a per-source deadline that moves a full period ahead for
+    every frame it accepts, and drops a frame that arrives more than 2% of a
+    period before it. A capture thread paced from grab *starts* still publishes
+    a little early whenever one grab is faster than the one before it (Xwayland
+    readbacks vary by a millisecond or more) and frames closer than a period
+    push that deadline ahead until one is dropped, costing a whole period each
+    time. Holding the early ones back for a fraction of a millisecond avoids it.
     """
     return max(0.0, last_publish + period * spacing - now)
 
@@ -296,6 +297,7 @@ class X11Capture:
         grab_failures = 0
         grabber = None
         last_publish = 0.0
+        grab_cost = 0.0  # smoothed duration of one grab, to start the next one early enough
         last_grab = None
         last_size = (0, 0)
         last_check = 0.0
@@ -313,8 +315,8 @@ class X11Capture:
         def emit(w, h, pixels):
             nonlocal last_publish
             wait = hold_for_publish(last_publish, period_now(), time.monotonic())
-            if wait > 0:
-                self.stop.wait(wait)
+            if wait > 0 and self.stop.wait(wait):
+                return  # closing: do not push one more early frame
             last_publish = time.monotonic()
             publish(w, h, pixels)  # Java draws these as opaque RGB.
 
@@ -357,11 +359,8 @@ class X11Capture:
                                     self.stop.wait(wait)  # FPS cap; then grab the newest pixels
                             grab_started=time.monotonic()
                             w,h,pixels=grabber.grab()
-                            # Schedule from grab starts, not ends, so the grab's own
-                            # cost does not pull the rate below the cap. After a stall,
-                            # restart the cadence instead of bursting to catch up.
-                            period = period_now()
-                            next_due = next_due+period if grab_started-next_due < period else grab_started+period
+                            cost = time.monotonic()-grab_started
+                            grab_cost = cost if not grab_cost else grab_cost*.9+cost*.1
                             grab_failures = 0
                             if probing:
                                 first = last_grab is None
@@ -375,8 +374,13 @@ class X11Capture:
                             else:
                                 last_grab, last_size = pixels, (w,h)
                             emit(w,h,pixels)
+                            # Pace from the publish, not the grab start: the next frame is
+                            # one period after this one, minus what a grab costs, so a slow
+                            # grab never makes later frames pile up behind a held publish
+                            # and the cap is not lowered by the grab's own duration.
+                            next_due = last_publish+period_now()*PUBLISH_SPACING-grab_cost
                             if not driven:
-                                self.stop.wait(max(.001,period_now()-(time.monotonic()-started)))
+                                self.stop.wait(max(.001,next_due-time.monotonic()))
                             continue
                         except Exception:
                             # A single failure (resize, unmap race, stray X error)

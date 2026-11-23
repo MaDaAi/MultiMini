@@ -275,14 +275,15 @@ class HoldForPublishTests(unittest.TestCase):
 
     def test_waits_for_the_remainder_of_the_spacing(self):
         wait = hold_for_publish(10.0, 0.020, 10.005)
-        self.assertAlmostEqual(wait, 0.020 * 0.99 - 0.005, places=6)
+        self.assertAlmostEqual(wait, 0.020 * linux_x11.PUBLISH_SPACING - 0.005, places=6)
 
     def test_first_frame_never_waits(self):
         self.assertEqual(hold_for_publish(0.0, 0.0167, time.monotonic()), 0.0)
 
-    def test_spacing_stays_inside_the_service_tolerance(self):
-        # linux_service drops a frame that is more than 2% of a period early.
-        self.assertGreater(linux_x11.PUBLISH_SPACING, 0.98)
+    def test_spacing_is_at_least_one_period(self):
+        # linux_service pushes its deadline a full period ahead per accepted frame;
+        # frames closer than a period make it drop one every few frames.
+        self.assertGreaterEqual(linux_x11.PUBLISH_SPACING, 1.0)
 
 
 class DamageProbeTests(unittest.TestCase):
@@ -407,4 +408,4 @@ class X11CaptureLoopTests(unittest.TestCase):
         times = [t for t, _ in published]
         gaps = [b - a for a, b in zip(times, times[1:])]
         self.assertGreater(len(gaps), 20)
-        self.assertGreaterEqual(min(gaps), (1 / fps) * 0.98)
+        self.assertGreaterEqual(min(gaps), (1 / fps) * 0.999)
