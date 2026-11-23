@@ -297,6 +297,14 @@ class XShmGrabber:
                 before = _error_counter[0]
                 ok = self.xext.XShmGetImage(self.display, drawable, self.image, 0, 0, ALL_PLANES)
                 self.x11.XSync(self.display, 0)
+            if (not ok or _error_counter[0] != before) and pixmap:
+                # Not redirected (no compositor): there is no backing pixmap, so
+                # read the window itself, and stop naming pixmaps for it.
+                before = _error_counter[0]
+                ok = self.xext.XShmGetImage(self.display, self.xid, self.image, 0, 0, ALL_PLANES)
+                self.x11.XSync(self.display, 0)
+                if ok and _error_counter[0] == before:
+                    self.composite = False
             if not ok or _error_counter[0] != before:
                 raise XShmUnavailable("XShmGetImage failed")
         finally:

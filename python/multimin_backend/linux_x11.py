@@ -236,7 +236,7 @@ class X11Capture:
         d = display.Display()
         win = d.create_resource_object('window', int(xid))
         last_error = 0
-        last_grab = 0.0
+        next_due = 0.0
         grabber = None
         try:
             from .linux_xshm import XShmGrabber
@@ -265,12 +265,16 @@ class X11Capture:
                                 # 250 ms timeout keeps close/unmap detection responsive.
                                 if not grabber.wait_for_change(.25):
                                     continue
-                                period = 1/max(1,min(1000,fps()))
-                                wait = period-(time.monotonic()-last_grab)
+                                wait = next_due-time.monotonic()
                                 if wait > 0:
                                     self.stop.wait(wait)  # FPS cap; then grab the newest pixels
+                            grab_started=time.monotonic()
                             w,h,pixels=grabber.grab()
-                            last_grab=time.monotonic()
+                            # Schedule from grab starts, not ends, so the grab's own
+                            # cost does not pull the rate below the cap. After a stall,
+                            # restart the cadence instead of bursting to catch up.
+                            period = 1/max(1,min(1000,fps()))
+                            next_due = next_due+period if grab_started-next_due < period else grab_started+period
                             publish(w,h,pixels)  # Java draws these as opaque RGB.
                             if not grabber.event_driven:
                                 self.stop.wait(max(.001,1/max(1,min(1000,fps()))-(time.monotonic()-started)))
@@ -308,15 +312,11 @@ class X11Capture:
                     fmt=next(f for f in d.display.info.pixmap_formats if f.depth==image.depth)
                     if fmt.bits_per_pixel!=32 or d.display.info.image_byte_order!=X.LSBFirst:
                         raise RuntimeError('X11 preview currently requires a 32-bit little-endian pixel format')
-                    data=bytearray(image.data)
+                    data=image.data
                     if len(data)!=w*h*4:
                         raise RuntimeError('Unexpected X11 image stride')
-                    # Most X11 windows are depth24 in a 32-bit storage format.
-                    # Their unused alpha byte is zero, not transparent content.
-                    # Force opaque for every depth: GL/Vulkan windows on depth-32
-                    # visuals often leave alpha at zero, which rendered as black.
-                    data[3::4]=b'\xff'*(w*h)
-                    publish(w,h,bytes(data))
+                    # Alpha is ignored: Java draws Linux frames as opaque RGB.
+                    publish(w,h,data)
                 except Exception as exc:
                     if time.monotonic()-last_error>5:
                         error(f'X11 capture failed: {exc}')
