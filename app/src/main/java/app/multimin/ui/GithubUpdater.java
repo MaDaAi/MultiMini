@@ -137,6 +137,7 @@ public final class GithubUpdater {
                     .header("Accept","application/vnd.github+json").header("User-Agent","MultiMini-update-check").GET().build();
                 var response=client.send(request,java.net.http.HttpResponse.BodyHandlers.ofString());
                 if(response.statusCode()==404)return null;
+                if(response.statusCode()==403||response.statusCode()==429)throw new IOException("GitHub is limiting update checks from this network for now; try again in an hour");
                 if(response.statusCode()!=200)throw new IOException("GitHub answered "+response.statusCode());
                 return parseLatest(response.body(),platformAssetPattern());
             }catch(IOException error){last=error;}

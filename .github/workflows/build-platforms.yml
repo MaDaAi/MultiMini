@@ -113,7 +113,12 @@ jobs:
           flatpak --user info io.github.MaDaAi.MultiMini
           flatpak --user remotes -d
       - name: Update check from inside the sandbox
-        run: flatpak run --user io.github.MaDaAi.MultiMini --check-updates
+        # Shared runners often hit GitHub's anonymous rate limit; that is not a bug here.
+        run: |
+          out=$(flatpak run --user io.github.MaDaAi.MultiMini --check-updates 2>&1) && { echo "$out"; exit 0; }
+          echo "$out"
+          echo "$out" | grep -q "limiting update checks" && exit 0
+          exit 1
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-flatpak-preview
